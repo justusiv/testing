@@ -1,61 +1,300 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>RPG Healer Simulator</title>
 <script type="module"
-  crossorigin>(function () { const a = document.createElement("link").relList; if (a && a.supports && a.supports("modulepreload")) return; for (const t of document.querySelectorAll('link[rel="modulepreload"]')) e(t); new MutationObserver(t => { for (const i of t) if (i.type === "childList") for (const n of i.addedNodes) n.tagName === "LINK" && n.rel === "modulepreload" && e(n) }).observe(document, { childList: !0, subtree: !0 }); function s(t) { const i = {}; return t.integrity && (i.integrity = t.integrity), t.referrerPolicy && (i.referrerPolicy = t.referrerPolicy), t.crossOrigin === "use-credentials" ? i.credentials = "include" : t.crossOrigin === "anonymous" ? i.credentials = "omit" : i.credentials = "same-origin", i } function e(t) { if (t.ep) return; t.ep = !0; const i = s(t); fetch(t.href, i) } })(); class P { constructor(a, s, e = "DPS") { this.id = a, this.name = s, this.role = e, this.maxHp = this.getMaxHpForRole(e), this.currentHp = this.maxHp, this.buffs = [], this.debuffs = [], this.shields = [], this.isDead = !1, this.baseDPS = this.getBaseDPSForRole(e), this.totalDamage = 0, this.damageHistory = [], this.currentDPS = 0 } getMaxHpForRole(role) { const hp = { Tank: 2500, DPS: 1200, Healer: 1000 }; return hp[role] || 1000 } getBaseDPSForRole(a) { const s = { Tank: { min: 50, max: 80 }, DPS: { min: 150, max: 250 }, Healer: { min: 20, max: 40 } }, e = s[a] || s.DPS; return Math.random() * (e.max - e.min) + e.min } takeDamage(a) { if (this.isDead) return 0; let s = a; for (let e = this.shields.length - 1; e >= 0; e--) { const t = this.shields[e]; if (t.amount >= s) { t.amount -= s, s = 0; break } else s -= t.amount, t.amount = 0 } if (s > 0) { const e = this.currentHp; this.currentHp = Math.max(0, this.currentHp - s); const t = e - this.currentHp; return this.currentHp === 0 && this.die(), t } return 0 } heal(a) { if (this.isDead) return { effective: 0, overheal: 0 }; const s = this.currentHp; this.currentHp = Math.min(this.maxHp, this.currentHp + a); const e = this.currentHp - s, t = a - e; return { effective: e, overheal: t } } die() { this.isDead = !0, this.currentHp = 0, this.buffs = [], this.debuffs = [] } resurrect() { this.isDead = !1, this.currentHp = Math.floor(this.maxHp * .4), this.buffs = [], this.debuffs = [], this.shields = [] } applyBuff(a) { const s = this.buffs.find(e => e.id === a.id); s ? (s.duration = a.duration, s.timeSinceLastTick = 0) : this.buffs.push({ ...a, timeSinceLastTick: 0 }) } applyShield(a) { this.shields.push({ ...a, maxAmount: a.amount }) } applyDebuff(a) { const s = this.debuffs.find(e => e.id === a.id); s ? (s.duration = a.duration, s.timeSinceLastTick = 0) : this.debuffs.push({ ...a, timeSinceLastTick: 0 }) } dispelDebuff() { return this.debuffs.length > 0 ? (this.debuffs.shift(), !0) : !1 } update(a, s) { if (!this.isDead) { for (let e = this.buffs.length - 1; e >= 0; e--) { const t = this.buffs[e]; if (t.duration -= a, t.timeSinceLastTick += a, t.timeSinceLastTick >= t.tickInterval) { const i = this.heal(t.healPerTick); s && i && (s.stats.totalHealing += i.effective, s.stats.totalOverheal += i.overheal, s.onCombatText && i.effective > 0 && s.onCombatText(this.id, i.effective, "heal")), t.timeSinceLastTick -= t.tickInterval } t.duration <= 0 && this.buffs.splice(e, 1) } for (let e = this.debuffs.length - 1; e >= 0; e--) { const t = this.debuffs[e]; if (t.duration -= a, t.timeSinceLastTick += a, t.timeSinceLastTick >= t.tickInterval) { const i = t.damagePerTick, n = this.takeDamage(i); s && s.onCombatText && n > 0 && s.onCombatText(this.id, n, "damage"), t.timeSinceLastTick -= t.tickInterval } t.duration <= 0 && this.debuffs.splice(e, 1) } for (let e = this.shields.length - 1; e >= 0; e--) { const t = this.shields[e]; t.duration -= a, (t.duration <= 0 || t.amount <= 0) && this.shields.splice(e, 1) } } } getHealthPercent() { return this.currentHp / this.maxHp * 100 } dealDamage(a) { if (this.isDead) return 0; const s = this.getHealthPercent(); let e = 1; s < 20 ? e = .25 : s < 40 ? e = .5 : s < 70 && (e = .8); const t = .9 + Math.random() * .2, n = this.baseDPS * e * t * a / 1e3; this.totalDamage += n, this.damageHistory.push({ timestamp: performance.now(), damage: n }); const c = performance.now() - 5e3; this.damageHistory = this.damageHistory.filter(f => f.timestamp > c); const u = this.damageHistory.reduce((f, l) => f + l.damage, 0), g = this.damageHistory.length > 0 ? (performance.now() - this.damageHistory[0].timestamp) / 1e3 : 1; return this.currentDPS = u / Math.max(g, 1), n } } class E { constructor(a, s, e, t, i, n, c = {}) { this.id = a, this.name = s, this.manaCost = e, this.castTime = t, this.cooldown = i, this.effectFn = n, this.targetDead = c.targetDead || !1, this.isChanneled = c.isChanneled || !1, this.tickInterval = c.tickInterval || 0, this.lastCastTime = 0 } canCast(a, s) { return a >= this.manaCost && s - this.lastCastTime >= this.cooldown } } const m = { FLASH_HEAL: new E("flash_heal", "Flash Heal", 15, 1500, 0, o => o.heal(250)), GREATER_HEAL: new E("greater_heal", "Greater Heal", 30, 2500, 0, o => o.heal(600)), RENEW: new E("renew", "Renew", 10, 0, 1e3, o => { o.applyBuff({ id: "renew", name: "Renew", duration: 12e3, tickInterval: 3e3, healPerTick: 150 }) }), SHIELD: new E("shield", "Shield", 25, 0, 6e3, o => (o.applyShield({ id: "shield", name: "Power Word: Shield", amount: 300, duration: 15e3 }), { effective: 0, overheal: 0 })), RESURRECTION: new E("resurrection", "Resurrection", 400, 4e3, 0, o => o.isDead ? (o.resurrect(), { effective: o.currentHp, overheal: 0 }) : null, { targetDead: !0 }), CHAIN_HEAL: new E("chain_heal", "Chain Heal", 40, 2e3, 3e3, (o, a) => ({ isChainHeal: !0, initialTarget: o, game: a })), DISPEL: new E("dispel", "Dispel", 25, 0, 8e3, o => ({ effective: 0, overheal: 0, dispelled: o.dispelDebuff() })), MEDITATION: new E("meditation", "Meditation", 0, 6e3, 3e4, (o, a) => (a.mana = Math.min(a.maxMana, a.mana + a.maxMana * .1), null), { isChanneled: !0, tickInterval: 1e3 }) }; class I {
-      constructor() { this.raidMembers = [], this.selectedTarget = null, this.mana = 1e3, this.maxMana = 1e3, this.isCasting = !1, this.currentCast = null, this.castStartTime = 0, this.channelTickTimer = 0, this.lastTick = 0, this.isRunning = !1, this.stats = { totalHealing: 0, totalOverheal: 0, totalDamage: 0 }, this.onCombatText = null, this.onChainHealEffect = null, this.bossTimer = 0, this.bossPhase = 0, this.gameOver = !1, this.bossMaxHealth = 15e5, this.bossCurrentHealth = 15e5, this.nextDotTime = 5e3, this.initRaid() } initRaid() { const a = [{ name: "Tank", role: "Tank" }, { name: "OffTank", role: "Tank" }, { name: "DPS 1", role: "DPS" }, { name: "DPS 2", role: "DPS" }, { name: "DPS 3", role: "DPS" }, { name: "Healer", role: "Healer" }, { name: "Mage", role: "DPS" }, { name: "Rogue", role: "DPS" }, { name: "Hunter", role: "DPS" }, { name: "Warlock", role: "DPS" }]; for (let s = 0; s < 25; s++) { const e = a[s % a.length], t = e.name + " " + (Math.floor(s / 10) + 1); this.raidMembers.push(new P(s, t, e.role)) } this.selectedTarget = this.raidMembers[0] } start() { this.isRunning = !0, this.lastTick = performance.now(), requestAnimationFrame(a => this.loop(a)) } loop(a) { if (!this.isRunning) return; const s = a - this.lastTick; this.lastTick = a, this.update(s, a), requestAnimationFrame(e => this.loop(e)) } update(a, s) { if (!this.gameOver) { if (this.mana < this.maxMana && (this.mana += .01 * a), this.bossLogic(a), this.raidMembers.forEach(e => { e.update(a, this); const t = e.dealDamage(a); this.stats.totalDamage += t, this.bossCurrentHealth = Math.max(0, this.bossCurrentHealth - t) }), this.isCasting && this.currentCast) { const e = s - this.castStartTime; this.currentCast.isChanneled ? (this.channelTickTimer += a, this.channelTickTimer >= this.currentCast.tickInterval && (this.channelTickTimer -= this.currentCast.tickInterval, this.currentCast.effectFn(this.castTarget, this)), e >= this.currentCast.castTime && this.completeCast(s)) : e >= this.currentCast.castTime && this.completeCast(s) } this.checkGameOver() } } bossLogic(a) {
+  crossorigin>(function () { const a = document.createElement("link").relList; if (a && a.supports && a.supports("modulepreload")) return; for (const t of document.querySelectorAll('link[rel="modulepreload"]')) e(t); new MutationObserver(t => { for (const i of t) if (i.type === "childList") for (const n of i.addedNodes) n.tagName === "LINK" && n.rel === "modulepreload" && e(n) }).observe(document, { childList: !0, subtree: !0 }); function s(t) { const i = {}; return t.integrity && (i.integrity = t.integrity), t.referrerPolicy && (i.referrerPolicy = t.referrerPolicy), t.crossOrigin === "use-credentials" ? i.credentials = "include" : t.crossOrigin === "anonymous" ? i.credentials = "omit" : i.credentials = "same-origin", i } function e(t) { if (t.ep) return; t.ep = !0; const i = s(t); fetch(t.href, i) } })();
+
+    // ====================================================================
+    // CONFIGURATION - Modify these values to customize the game
+    // ====================================================================
+
+    const CONFIG = {
+      // Game Balance Settings
+      GAME_BALANCE: {
+        PLAYER_MAX_MANA: 1000,
+        MANA_REGEN_RATE: 0.005, // Mana per millisecond
+        BOSS_MAX_HEALTH: 2500000,
+        DEATH_DAMAGE_MULTIPLIER: 0.07, // +5% damage per dead player
+      },
+
+      // Boss Mechanics Timings
+      BOSS_MECHANICS: {
+        AOE_INTERVAL: 15000, // Raid-wide AoE damage every 10 seconds
+        AOE_BASE_DAMAGE: 100,
+        DOT_MIN_INTERVAL: 15000, // Shadow Pain min interval
+        DOT_MAX_INTERVAL: 20000, // Shadow Pain max interval  
+        RANDOM_DAMAGE_CHANCE: 0.07, // 5% chance per update
+        RANDOM_DAMAGE_MIN: 15,
+        RANDOM_DAMAGE_MAX: 75,
+      },
+
+      // Boss Phase Multipliers (based on boss health %)
+      BOSS_PHASES: [
+        { threshold: 90, multiplier: 1.0 },
+        { threshold: 80, multiplier: 1.4 },
+        { threshold: 70, multiplier: 1.8 },
+        { threshold: 60, multiplier: 2.2 },
+        { threshold: 50, multiplier: 2.6 },
+        { threshold: 40, multiplier: 3.0 },
+        { threshold: 30, multiplier: 3.5 },
+        { threshold: 20, multiplier: 4.0 },
+        { threshold: 10, multiplier: 4.5 },
+        { threshold: 5, multiplier: 6.0 }, // Enrage
+      ],
+
+      // Raid Configuration
+      RAID_CONFIG: {
+        RAID_SIZE: 25,
+        ROLES: [
+          { name: "Tank", role: "Tank" },
+          { name: "OffTank", role: "Tank" },
+          { name: "Mage", role: "DPS" },
+          { name: "Rogue", role: "DPS" },
+          { name: "Hunter", role: "DPS" },
+          { name: "Healer", role: "Healer" },
+          { name: "Mage2", role: "DPS" },
+          { name: "Rogue2", role: "DPS" },
+          { name: "Hunter2", role: "DPS" },
+          { name: "Warlock", role: "DPS" },
+        ],
+      },
+
+      // Role Statistics
+      ROLE_STATS: {
+        Tank: { maxHp: 3500, dpsMin: 50, dpsMax: 80 },
+        DPS: { maxHp: 1400, dpsMin: 150, dpsMax: 250 },
+        Healer: { maxHp: 1000, dpsMin: 20, dpsMax: 40 },
+      },
+
+      // Keybindings - Change these to customize your controls
+      KEYBINDINGS: {
+        FLASH_HEAL: "1",
+        GREATER_HEAL: "2",
+        RENEW: "3",
+        SHIELD: "4",
+        RESURRECTION: "r",
+        CHAIN_HEAL: "e",
+        DISPEL: "f",
+        MEDITATION: "q",
+      },
+
+      // UI Default Settings
+      UI: {
+        SHOW_MOUSEOVER_DEFAULT: true,
+        SHOW_HEALTH_TEXT_DEFAULT: true,
+      },
+    };
+
+    // Spell Configuration - Add or modify spells here
+    const SPELL_CONFIG = {
+      FLASH_HEAL: {
+        id: "flash_heal",
+        name: "Flash Heal",
+        manaCost: 15,
+        castTime: 1000,
+        cooldown: 0,
+        healAmount: 250,
+        type: "directHeal",
+      },
+      GREATER_HEAL: {
+        id: "greater_heal",
+        name: "Greater Heal",
+        manaCost: 30,
+        castTime: 2000,
+        cooldown: 0,
+        healAmount: 600,
+        type: "directHeal",
+      },
+      RENEW: {
+        id: "renew",
+        name: "Renew",
+        manaCost: 20,
+        castTime: 0,
+        cooldown: 1000,
+        duration: 12000,
+        tickInterval: 3000,
+        healPerTick: 125,
+        type: "HoT", // Heal over Time
+      },
+      SHIELD: {
+        id: "shield",
+        name: "Shield",
+        manaCost: 25,
+        castTime: 0,
+        cooldown: 10000,
+        shieldAmount: 900,
+        duration: 15000,
+        type: "shield",
+      },
+      RESURRECTION: {
+        id: "resurrection",
+        name: "Resurrection",
+        manaCost: 400,
+        castTime: 4000,
+        cooldown: 0,
+        resurrectHealthPercent: 0.4,
+        type: "resurrection",
+        targetDead: true,
+      },
+      CHAIN_HEAL: {
+        id: "chain_heal",
+        name: "Chain Heal",
+        manaCost: 50,
+        castTime: 2000,
+        cooldown: 3000,
+        initialHeal: 1000,
+        jumps: 3,
+        jumpReduction: 0.5, // Each jump heals 50% of previous
+        type: "chainHeal",
+      },
+      DISPEL: {
+        id: "dispel",
+        name: "Dispel",
+        manaCost: 25,
+        castTime: 0,
+        cooldown: 5000,
+        type: "dispel",
+      },
+      MEDITATION: {
+        id: "meditation",
+        name: "Meditation",
+        manaCost: 0,
+        castTime: 6000,
+        cooldown: 30000,
+        manaRestorePercent: 0.4, // Restore 10% mana
+        tickInterval: 1000,
+        type: "channeled",
+        isChanneled: true,
+      },
+    };
+
+    // Debuff Configuration
+    const DEBUFF_CONFIG = {
+      SHADOW_PAIN: {
+        id: "shadow_pain",
+        name: "Shadow Pain",
+        duration: 25000,
+        tickInterval: 1500,
+        baseDamage: 100,
+      },
+    };
+
+    // ====================================================================
+    // END CONFIGURATION
+    // ====================================================================
+
+    class P { constructor(a, s, e = "DPS") { this.id = a, this.name = s, this.role = e, this.maxHp = this.getMaxHpForRole(e), this.currentHp = this.maxHp, this.buffs = [], this.debuffs = [], this.shields = [], this.isDead = !1, this.baseDPS = this.getBaseDPSForRole(e), this.totalDamage = 0, this.damageHistory = [], this.currentDPS = 0 } getMaxHpForRole(role) { const stats = CONFIG.ROLE_STATS[role] || CONFIG.ROLE_STATS.DPS; return stats.maxHp } getBaseDPSForRole(a) { const stats = CONFIG.ROLE_STATS[a] || CONFIG.ROLE_STATS.DPS; return Math.random() * (stats.dpsMax - stats.dpsMin) + stats.dpsMin } takeDamage(a) { if (this.isDead) return 0; let s = a; for (let e = this.shields.length - 1; e >= 0; e--) { const t = this.shields[e]; if (t.amount >= s) { t.amount -= s, s = 0; break } else s -= t.amount, t.amount = 0 } if (s > 0) { const e = this.currentHp; this.currentHp = Math.max(0, this.currentHp - s); const t = e - this.currentHp; return this.currentHp === 0 && this.die(), t } return 0 } heal(a) { if (this.isDead) return { effective: 0, overheal: 0 }; const s = this.currentHp; this.currentHp = Math.min(this.maxHp, this.currentHp + a); const e = this.currentHp - s, t = a - e; return { effective: e, overheal: t } } die() { this.isDead = !0, this.currentHp = 0, this.buffs = [], this.debuffs = [] } resurrect() { this.isDead = !1, this.currentHp = Math.floor(this.maxHp * SPELL_CONFIG.RESURRECTION.resurrectHealthPercent), this.buffs = [], this.debuffs = [], this.shields = [] } applyBuff(a) { const s = this.buffs.find(e => e.id === a.id); s ? (s.duration = a.duration, s.timeSinceLastTick = 0) : this.buffs.push({ ...a, timeSinceLastTick: 0 }) } applyShield(a) { this.shields.push({ ...a, maxAmount: a.amount }) } applyDebuff(a) { const s = this.debuffs.find(e => e.id === a.id); s ? (s.duration = a.duration, s.timeSinceLastTick = 0) : this.debuffs.push({ ...a, timeSinceLastTick: 0 }) } dispelDebuff() { return this.debuffs.length > 0 ? (this.debuffs.shift(), !0) : !1 } update(a, s) { if (!this.isDead) { for (let e = this.buffs.length - 1; e >= 0; e--) { const t = this.buffs[e]; if (t.duration -= a, t.timeSinceLastTick += a, t.timeSinceLastTick >= t.tickInterval) { const i = this.heal(t.healPerTick); s && i && (s.stats.totalHealing += i.effective, s.stats.totalOverheal += i.overheal, s.onCombatText && i.effective > 0 && s.onCombatText(this.id, i.effective, "heal")), t.timeSinceLastTick -= t.tickInterval } t.duration <= 0 && this.buffs.splice(e, 1) } for (let e = this.debuffs.length - 1; e >= 0; e--) { const t = this.debuffs[e]; if (t.duration -= a, t.timeSinceLastTick += a, t.timeSinceLastTick >= t.tickInterval) { const i = t.damagePerTick, n = this.takeDamage(i); s && s.onCombatText && n > 0 && s.onCombatText(this.id, n, "damage"), t.timeSinceLastTick -= t.tickInterval } t.duration <= 0 && this.debuffs.splice(e, 1) } for (let e = this.shields.length - 1; e >= 0; e--) { const t = this.shields[e]; t.duration -= a, (t.duration <= 0 || t.amount <= 0) && this.shields.splice(e, 1) } } } getHealthPercent() { return this.currentHp / this.maxHp * 100 } dealDamage(a) { if (this.isDead) return 0; const s = this.getHealthPercent(); let e = 1; s < 20 ? e = .25 : s < 40 ? e = .5 : s < 70 && (e = .8); const t = .9 + Math.random() * .2, n = this.baseDPS * e * t * a / 1e3; this.totalDamage += n, this.damageHistory.push({ timestamp: performance.now(), damage: n }); const c = performance.now() - 5e3; this.damageHistory = this.damageHistory.filter(f => f.timestamp > c); const u = this.damageHistory.reduce((f, l) => f + l.damage, 0), g = this.damageHistory.length > 0 ? (performance.now() - this.damageHistory[0].timestamp) / 1e3 : 1; return this.currentDPS = u / Math.max(g, 1), n } } class E { constructor(a, s, e, t, i, n, c = {}) { this.id = a, this.name = s, this.manaCost = e, this.castTime = t, this.cooldown = i, this.effectFn = n, this.targetDead = c.targetDead || !1, this.isChanneled = c.isChanneled || !1, this.tickInterval = c.tickInterval || 0, this.lastCastTime = 0 } canCast(a, s) { return a >= this.manaCost && s - this.lastCastTime >= this.cooldown } }
+
+    // Create spells from configuration
+    function createSpell(config) {
+      let effectFn;
+      const opts = { targetDead: config.targetDead || false, isChanneled: config.isChanneled || false, tickInterval: config.tickInterval || 0 };
+
+      switch (config.type) {
+        case 'directHeal':
+          effectFn = o => o.heal(config.healAmount);
+          break;
+        case 'HoT':
+          effectFn = o => { o.applyBuff({ id: config.id, name: config.name, duration: config.duration, tickInterval: config.tickInterval, healPerTick: config.healPerTick }) };
+          break;
+        case 'shield':
+          effectFn = o => (o.applyShield({ id: config.id, name: config.name, amount: config.shieldAmount, duration: config.duration }), { effective: 0, overheal: 0 });
+          break;
+        case 'resurrection':
+          effectFn = o => o.isDead ? (o.resurrect(), { effective: o.currentHp, overheal: 0 }) : null;
+          break;
+        case 'chainHeal':
+          effectFn = (o, a) => ({ isChainHeal: !0, initialTarget: o, game: a });
+          break;
+        case 'dispel':
+          effectFn = o => ({ effective: 0, overheal: 0, dispelled: o.dispelDebuff() });
+          break;
+        case 'channeled':
+          effectFn = (o, a) => (a.mana = Math.min(a.maxMana, a.mana + a.maxMana * config.manaRestorePercent), null);
+          break;
+        default:
+          effectFn = () => null;
+      }
+
+      return new E(config.id, config.name, config.manaCost, config.castTime, config.cooldown, effectFn, opts);
+    }
+
+    const m = {
+      FLASH_HEAL: createSpell(SPELL_CONFIG.FLASH_HEAL),
+      GREATER_HEAL: createSpell(SPELL_CONFIG.GREATER_HEAL),
+      RENEW: createSpell(SPELL_CONFIG.RENEW),
+      SHIELD: createSpell(SPELL_CONFIG.SHIELD),
+      RESURRECTION: createSpell(SPELL_CONFIG.RESURRECTION),
+      CHAIN_HEAL: createSpell(SPELL_CONFIG.CHAIN_HEAL),
+      DISPEL: createSpell(SPELL_CONFIG.DISPEL),
+      MEDITATION: createSpell(SPELL_CONFIG.MEDITATION),
+    };
+
+    class I {
+      constructor() { this.raidMembers = [], this.selectedTarget = null, this.mana = CONFIG.GAME_BALANCE.PLAYER_MAX_MANA, this.maxMana = CONFIG.GAME_BALANCE.PLAYER_MAX_MANA, this.isCasting = !1, this.currentCast = null, this.castStartTime = 0, this.channelTickTimer = 0, this.lastTick = 0, this.isRunning = !1, this.stats = { totalHealing: 0, totalOverheal: 0, totalDamage: 0 }, this.onCombatText = null, this.onChainHealEffect = null, this.bossTimer = 0, this.bossPhase = 0, this.gameOver = !1, this.bossMaxHealth = CONFIG.GAME_BALANCE.BOSS_MAX_HEALTH, this.bossCurrentHealth = CONFIG.GAME_BALANCE.BOSS_MAX_HEALTH, this.nextDotTime = 5e3, this.initRaid() } initRaid() { const a = CONFIG.RAID_CONFIG.ROLES; for (let s = 0; s < CONFIG.RAID_CONFIG.RAID_SIZE; s++) { const e = a[s % a.length], t = e.name + " " + (Math.floor(s / 10) + 1); this.raidMembers.push(new P(s, t, e.role)) } this.selectedTarget = this.raidMembers[0] } start() { this.isRunning = !0, this.lastTick = performance.now(), requestAnimationFrame(a => this.loop(a)) } loop(a) { if (!this.isRunning) return; const s = a - this.lastTick; this.lastTick = a, this.update(s, a), requestAnimationFrame(e => this.loop(e)) } update(a, s) { if (!this.gameOver) { if (this.mana < this.maxMana && (this.mana += CONFIG.GAME_BALANCE.MANA_REGEN_RATE * a), this.bossLogic(a), this.raidMembers.forEach(e => { e.update(a, this); const t = e.dealDamage(a); this.stats.totalDamage += t, this.bossCurrentHealth = Math.max(0, this.bossCurrentHealth - t) }), this.isCasting && this.currentCast) { const e = s - this.castStartTime; this.currentCast.isChanneled ? (this.channelTickTimer += a, this.channelTickTimer >= this.currentCast.tickInterval && (this.channelTickTimer -= this.currentCast.tickInterval, this.currentCast.effectFn(this.castTarget, this)), e >= this.currentCast.castTime && this.completeCast(s)) : e >= this.currentCast.castTime && this.completeCast(s) } this.checkGameOver() } } bossLogic(a) {
         this.bossTimer += a;
         const s = this.bossCurrentHealth / this.bossMaxHealth * 100;
-        let e = 1;
-        if (s < 20 ? e = 3 : s < 40 ? e = 2.2 : s < 60 ? e = 1.7 : s < 80 && (e = 1.3));
 
-        // Difficulty Scaling: +5% damage per dead player
+        // Get boss phase multiplier from config
+        let e = CONFIG.BOSS_PHASES[0].multiplier;
+        for (const phase of CONFIG.BOSS_PHASES) {
+          if (s < phase.threshold) {
+            e = phase.multiplier;
+          }
+        }
+
+        // Difficulty Scaling: damage per dead player from config
         const aliveMembers = this.raidMembers.filter(m => !m.isDead);
         const deadCount = this.raidMembers.length - aliveMembers.length;
-        const deathMultiplier = 1 + (deadCount * 0.05);
+        const deathMultiplier = 1 + (deadCount * CONFIG.GAME_BALANCE.DEATH_DAMAGE_MULTIPLIER);
 
         // Apply death multiplier to base multiplier
         e *= deathMultiplier;
 
-        if (Math.random() < .05 && aliveMembers.length > 0) {
+        // Random single-target damage
+        if (Math.random() < CONFIG.BOSS_MECHANICS.RANDOM_DAMAGE_CHANCE && aliveMembers.length > 0) {
           const t = Math.floor(Math.random() * aliveMembers.length);
           const target = aliveMembers[t];
-          const i = Math.floor(Math.random() * 50) + 10;
+          const i = Math.floor(Math.random() * (CONFIG.BOSS_MECHANICS.RANDOM_DAMAGE_MAX - CONFIG.BOSS_MECHANICS.RANDOM_DAMAGE_MIN)) + CONFIG.BOSS_MECHANICS.RANDOM_DAMAGE_MIN;
           const n = Math.floor(i * e);
           const c = target.takeDamage(n);
           this.onCombatText && c > 0 && this.onCombatText(target.id, c, "damage")
         }
-        if (this.bossTimer > 1e4) {
+
+        // Raid-wide AoE damage
+        if (this.bossTimer > CONFIG.BOSS_MECHANICS.AOE_INTERVAL) {
           this.bossTimer = 0;
-          const i = Math.floor(100 * e);
-          // Raid wide damage hits everyone, dead or alive (doesn't matter for dead)
+          const i = Math.floor(CONFIG.BOSS_MECHANICS.AOE_BASE_DAMAGE * e);
           this.raidMembers.forEach(n => {
             const c = n.takeDamage(i);
             this.onCombatText && c > 0 && this.onCombatText(n.id, c, "damage")
           }), console.log(`Raid Wide Damage! (${i} damage, ${e.toFixed(1)}x multiplier)`)
         }
+
+        // Shadow Pain DoT application
         if (this.nextDotTime -= a, this.nextDotTime <= 0) {
-          this.nextDotTime = 1e4 + Math.random() * 1e4;
+          this.nextDotTime = CONFIG.BOSS_MECHANICS.DOT_MIN_INTERVAL + Math.random() * (CONFIG.BOSS_MECHANICS.DOT_MAX_INTERVAL - CONFIG.BOSS_MECHANICS.DOT_MIN_INTERVAL);
           if (aliveMembers.length > 0) {
             const t = Math.floor(Math.random() * aliveMembers.length);
             const i = aliveMembers[t];
-            const c = Math.floor(150 * e);
+            const debuffCfg = DEBUFF_CONFIG.SHADOW_PAIN;
+            const c = Math.floor(debuffCfg.baseDamage * e);
             i.applyDebuff({
-              id: "shadow_pain",
-              name: "Shadow Pain",
-              duration: 15e3,
-              tickInterval: 3e3,
+              id: debuffCfg.id,
+              name: debuffCfg.name,
+              duration: debuffCfg.duration,
+              tickInterval: debuffCfg.tickInterval,
               damagePerTick: c
             }), console.log(`Applied Shadow Pain to ${i.name}`), this.onCombatText && this.onCombatText(i.id, "Shadow Pain", "damage")
           }
         }
-      } checkGameOver() { this.raidMembers.filter(s => !s.isDead).length === 0 && (this.gameOver = !0, this.isRunning = !1, console.log("Game Over")) } startCast(a, s = null) { if (this.isCasting) return; const e = Object.values(m).find(i => i.id === a); if (!e || !e.canCast(this.mana, performance.now())) return; const t = s !== null ? this.raidMembers.find(i => i.id === s) : this.selectedTarget; if (t && !(t.isDead && !e.targetDead)) if (e.castTime === 0) { this.mana -= e.manaCost, e.lastCastTime = performance.now(); const i = e.effectFn(t, this); i && (i.isChainHeal ? this.processChainHeal(t, 800) : (this.stats.totalHealing += i.effective, this.stats.totalOverheal += i.overheal, this.onCombatText && i.effective > 0 && this.onCombatText(t.id, i.effective, "heal"))) } else this.isCasting = !0, this.currentCast = e, this.castStartTime = performance.now(), this.castTarget = t, e.isChanneled && (this.channelTickTimer = 0) } completeCast(a) { const s = this.castTarget || this.selectedTarget; if (!s || s.isDead && !this.currentCast.targetDead) { this.isCasting = !1, this.currentCast = null, this.castTarget = null; return } if (this.mana -= this.currentCast.manaCost, this.currentCast.lastCastTime = a, !this.currentCast.isChanneled) { const e = this.currentCast.effectFn(s, this); e && (e.isChainHeal ? this.processChainHeal(s, 800) : (this.stats.totalHealing += e.effective, this.stats.totalOverheal += e.overheal, this.onCombatText && e.effective > 0 && this.onCombatText(s.id, e.effective, "heal"))) } this.isCasting = !1, this.currentCast = null, this.castTarget = null } selectTarget(a) { this.selectedTarget = this.raidMembers.find(s => s.id === a) } getAdjacentMembers(a) { const e = Math.floor(a.id / 5), t = a.id % 5, i = []; for (let n = e - 1; n <= e + 1; n++)for (let c = t - 1; c <= t + 1; c++) { if (n === e && c === t || n < 0 || c < 0 || c >= 5) continue; const u = n * 5 + c, g = this.raidMembers.find(f => f.id === u); g && !g.isDead && i.push(g) } return i } processChainHeal(a, s) { const e = [a], t = new Set([a.id]); let i = a, n = s; const c = i.heal(n); this.stats.totalHealing += c.effective, this.stats.totalOverheal += c.overheal, this.onCombatText && c.effective > 0 && this.onCombatText(i.id, c.effective, "heal"); for (let u = 0; u < 3; u++) { n = Math.floor(n * .5); const g = this.getAdjacentMembers(i).filter(f => !t.has(f.id)); if (g.length > 0) { i = g.reduce((l, p) => p.getHealthPercent() < l.getHealthPercent() ? p : l), e.push(i), t.add(i.id); const f = i.heal(n); this.stats.totalHealing += f.effective, this.stats.totalOverheal += f.overheal, this.onCombatText && f.effective > 0 && this.onCombatText(i.id, f.effective, "heal") } else break } return this.onChainHealEffect && e.length > 1 && this.onChainHealEffect(e), { effective: 0, overheal: 0 } } getTopDPSPlayers(a = 5) { return this.raidMembers.filter(s => !s.isDead).sort((s, e) => e.currentDPS - s.currentDPS).slice(0, a) } getTotalRaidDPS() { return this.raidMembers.filter(a => !a.isDead).reduce((a, s) => a + s.currentDPS, 0) }
-    } const r = new I; document.getElementById("raid-frames"); const R = document.querySelector("#mana-bar .bar-fill"), B = document.querySelector("#mana-bar .bar-text"), M = document.getElementById("cast-bar"), H = document.getElementById("cast-fill"), x = document.getElementById("cast-name"), O = document.getElementById("spell-bar"), $ = document.getElementById("stat-healing"), A = document.getElementById("stat-overheal"), N = document.getElementById("stat-overheal-pct"); let S = !1, D = null; function F() {
-      const o = document.getElementById("raid-frames"); o.innerHTML = "", r.raidMembers.forEach(t => { const i = document.createElement("div"); i.className = "raid-frame", i.id = `frame-${t.id}`, i.onclick = () => { r.selectTarget(t.id), L() }, i.onmouseenter = () => { D = t.id }, i.onmouseleave = () => { D === t.id && (D = null) }; const n = document.createElement("div"); n.className = "frame-name", n.textContent = t.name; const c = document.createElement("div"); c.className = "health-bar", c.id = `health-${t.id}`; const u = document.createElement("div"); u.className = "buff-container", u.id = `buffs-${t.id}`; const g = document.createElement("div"); g.className = "shield-overlay", g.id = `shield-${t.id}`, i.appendChild(n), i.appendChild(c), i.appendChild(g), i.appendChild(u), o.appendChild(i) }); const a = document.getElementById("spell-bar"); a.innerHTML = ""; const s = ["1", "2", "3", "4", "Q", "E", "R", "F"]; Object.values(m).forEach((t, i) => {
+      } checkGameOver() { this.raidMembers.filter(s => !s.isDead).length === 0 && (this.gameOver = !0, this.isRunning = !1, console.log("Game Over")) } startCast(a, s = null) { if (this.isCasting) return; const e = Object.values(m).find(i => i.id === a); if (!e || !e.canCast(this.mana, performance.now())) return; const t = s !== null ? this.raidMembers.find(i => i.id === s) : this.selectedTarget; if (t && !(t.isDead && !e.targetDead)) if (e.castTime === 0) { this.mana -= e.manaCost, e.lastCastTime = performance.now(); const i = e.effectFn(t, this); i && (i.isChainHeal ? this.processChainHeal(t, SPELL_CONFIG.CHAIN_HEAL.initialHeal) : (this.stats.totalHealing += i.effective, this.stats.totalOverheal += i.overheal, this.onCombatText && i.effective > 0 && this.onCombatText(t.id, i.effective, "heal"))) } else this.isCasting = !0, this.currentCast = e, this.castStartTime = performance.now(), this.castTarget = t, e.isChanneled && (this.channelTickTimer = 0) } completeCast(a) { const s = this.castTarget || this.selectedTarget; if (!s || s.isDead && !this.currentCast.targetDead) { this.isCasting = !1, this.currentCast = null, this.castTarget = null; return } if (this.mana -= this.currentCast.manaCost, this.currentCast.lastCastTime = a, !this.currentCast.isChanneled) { const e = this.currentCast.effectFn(s, this); e && (e.isChainHeal ? this.processChainHeal(s, SPELL_CONFIG.CHAIN_HEAL.initialHeal) : (this.stats.totalHealing += e.effective, this.stats.totalOverheal += e.overheal, this.onCombatText && e.effective > 0 && this.onCombatText(s.id, e.effective, "heal"))) } this.isCasting = !1, this.currentCast = null, this.castTarget = null } selectTarget(a) { this.selectedTarget = this.raidMembers.find(s => s.id === a) } getAdjacentMembers(a) { const e = Math.floor(a.id / 5), t = a.id % 5, i = []; for (let n = e - 1; n <= e + 1; n++)for (let c = t - 1; c <= t + 1; c++) { if (n === e && c === t || n < 0 || c < 0 || c >= 5) continue; const u = n * 5 + c, g = this.raidMembers.find(f => f.id === u); g && !g.isDead && i.push(g) } return i } processChainHeal(a, s) { const cfg = SPELL_CONFIG.CHAIN_HEAL; const e = [a], t = new Set([a.id]); let i = a, n = s; const c = i.heal(n); this.stats.totalHealing += c.effective, this.stats.totalOverheal += c.overheal, this.onCombatText && c.effective > 0 && this.onCombatText(i.id, c.effective, "heal"); for (let u = 0; u < cfg.jumps; u++) { n = Math.floor(n * cfg.jumpReduction); const g = this.getAdjacentMembers(i).filter(f => !t.has(f.id)); if (g.length > 0) { i = g.reduce((l, p) => p.getHealthPercent() < l.getHealthPercent() ? p : l), e.push(i), t.add(i.id); const f = i.heal(n); this.stats.totalHealing += f.effective, this.stats.totalOverheal += f.overheal, this.onCombatText && f.effective > 0 && this.onCombatText(i.id, f.effective, "heal") } else break } return this.onChainHealEffect && e.length > 1 && this.onChainHealEffect(e), { effective: 0, overheal: 0 } } getTopDPSPlayers(a = 5) { return this.raidMembers.filter(s => !s.isDead).sort((s, e) => e.currentDPS - s.currentDPS).slice(0, a) } getTotalRaidDPS() { return this.raidMembers.filter(a => !a.isDead).reduce((a, s) => a + s.currentDPS, 0) }
+    } const r = new I; document.getElementById("raid-frames"); const R = document.querySelector("#mana-bar .bar-fill"), B = document.querySelector("#mana-bar .bar-text"), M = document.getElementById("cast-bar"), H = document.getElementById("cast-fill"), x = document.getElementById("cast-name"), O = document.getElementById("spell-bar"), $ = document.getElementById("stat-healing"), A = document.getElementById("stat-overheal"), N = document.getElementById("stat-overheal-pct"); let S = CONFIG.UI.SHOW_MOUSEOVER_DEFAULT, D = null; function F() {
+      const o = document.getElementById("raid-frames"); o.innerHTML = "", r.raidMembers.forEach(t => { const i = document.createElement("div"); i.className = "raid-frame", i.id = `frame-${t.id}`, i.onclick = () => { r.selectTarget(t.id), L() }, i.onmouseenter = () => { D = t.id }, i.onmouseleave = () => { D === t.id && (D = null) }; const n = document.createElement("div"); n.className = "frame-name", n.textContent = t.name; const c = document.createElement("div"); c.className = "health-bar", c.id = `health-${t.id}`; const u = document.createElement("div"); u.className = "buff-container", u.id = `buffs-${t.id}`; const g = document.createElement("div"); g.className = "shield-overlay", g.id = `shield-${t.id}`, i.appendChild(n), i.appendChild(c), i.appendChild(g), i.appendChild(u), o.appendChild(i) }); const a = document.getElementById("spell-bar"); a.innerHTML = ""; const keybinds = Object.values(CONFIG.KEYBINDINGS); Object.values(m).forEach((t, i) => {
         const n = document.createElement("div"); n.className = "spell-btn", n.innerHTML = `
       <span>${t.name}</span>
-      <span class="keybind">${s[i]}</span>
+      <span class="keybind">${keybinds[i]}</span>
     `, n.onclick = () => r.startCast(t.id), a.appendChild(n)
-      }); const e = document.getElementById("mouseover-toggle"); e && (e.onchange = t => { S = t.target.checked, console.log("Mouse-Over Mode:", S) }), document.addEventListener("keydown", t => { if (!r.gameOver) { if (S && D !== null) { const i = D; t.key === "1" && r.startCast(m.FLASH_HEAL.id, i), t.key === "2" && r.startCast(m.GREATER_HEAL.id, i), t.key === "3" && r.startCast(m.RENEW.id, i), t.key === "4" && r.startCast(m.SHIELD.id, i), (t.key === "q" || t.key === "Q") && r.startCast(m.RESURRECTION.id, i), (t.key === "e" || t.key === "E") && r.startCast(m.CHAIN_HEAL.id, i), (t.key === "r" || t.key === "R") && r.startCast(m.DISPEL.id, i), (t.key === "f" || t.key === "F") && r.startCast(m.MEDITATION.id, i); return } t.key === "1" && r.startCast(m.FLASH_HEAL.id), t.key === "2" && r.startCast(m.GREATER_HEAL.id), t.key === "3" && r.startCast(m.RENEW.id), t.key === "4" && r.startCast(m.SHIELD.id), (t.key === "q" || t.key === "Q") && r.startCast(m.RESURRECTION.id), (t.key === "e" || t.key === "E") && r.startCast(m.CHAIN_HEAL.id), (t.key === "r" || t.key === "R") && r.startCast(m.DISPEL.id), (t.key === "f" || t.key === "F") && r.startCast(m.MEDITATION.id) } })
+      }); const e = document.getElementById("mouseover-toggle"); e && (e.checked = CONFIG.UI.SHOW_MOUSEOVER_DEFAULT, e.onchange = t => { S = t.target.checked, console.log("Mouse-Over Mode:", S) }); const healthToggle = document.getElementById('health-text-toggle'); healthToggle && (healthToggle.checked = CONFIG.UI.SHOW_HEALTH_TEXT_DEFAULT); document.addEventListener("keydown", t => { if (!r.gameOver) { if (S && D !== null) { const i = D; const kb = CONFIG.KEYBINDINGS; t.key === kb.FLASH_HEAL && r.startCast(m.FLASH_HEAL.id, i), t.key === kb.GREATER_HEAL && r.startCast(m.GREATER_HEAL.id, i), t.key === kb.RENEW && r.startCast(m.RENEW.id, i), t.key === kb.SHIELD && r.startCast(m.SHIELD.id, i), t.key.toLowerCase() === kb.RESURRECTION.toLowerCase() && r.startCast(m.RESURRECTION.id, i), t.key.toLowerCase() === kb.CHAIN_HEAL.toLowerCase() && r.startCast(m.CHAIN_HEAL.id, i), t.key.toLowerCase() === kb.DISPEL.toLowerCase() && r.startCast(m.DISPEL.id, i), t.key.toLowerCase() === kb.MEDITATION.toLowerCase() && r.startCast(m.MEDITATION.id, i); return } const kb = CONFIG.KEYBINDINGS; t.key === kb.FLASH_HEAL && r.startCast(m.FLASH_HEAL.id), t.key === kb.GREATER_HEAL && r.startCast(m.GREATER_HEAL.id), t.key === kb.RENEW && r.startCast(m.RENEW.id), t.key === kb.SHIELD && r.startCast(m.SHIELD.id), t.key.toLowerCase() === kb.RESURRECTION.toLowerCase() && r.startCast(m.RESURRECTION.id), t.key.toLowerCase() === kb.CHAIN_HEAL.toLowerCase() && r.startCast(m.CHAIN_HEAL.id), t.key.toLowerCase() === kb.DISPEL.toLowerCase() && r.startCast(m.DISPEL.id), t.key.toLowerCase() === kb.MEDITATION.toLowerCase() && r.startCast(m.MEDITATION.id) } })
     } function L() { if (document.querySelectorAll(".raid-frame").forEach(o => o.classList.remove("selected")), r.selectedTarget) { const o = document.getElementById(`frame-${r.selectedTarget.id}`); o && o.classList.add("selected") } } function k() {
       const showHealthText = document.getElementById('health-text-toggle')?.checked;
       r.raidMembers.forEach(l => {
