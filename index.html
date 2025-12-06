@@ -1,715 +1,730 @@
-<!DOCTYPE html>
-<html lang="en">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RPG Healer Simulator</title>
+<script type="module"
+  crossorigin>(function () { const a = document.createElement("link").relList; if (a && a.supports && a.supports("modulepreload")) return; for (const t of document.querySelectorAll('link[rel="modulepreload"]')) e(t); new MutationObserver(t => { for (const i of t) if (i.type === "childList") for (const n of i.addedNodes) n.tagName === "LINK" && n.rel === "modulepreload" && e(n) }).observe(document, { childList: !0, subtree: !0 }); function s(t) { const i = {}; return t.integrity && (i.integrity = t.integrity), t.referrerPolicy && (i.referrerPolicy = t.referrerPolicy), t.crossOrigin === "use-credentials" ? i.credentials = "include" : t.crossOrigin === "anonymous" ? i.credentials = "omit" : i.credentials = "same-origin", i } function e(t) { if (t.ep) return; t.ep = !0; const i = s(t); fetch(t.href, i) } })(); class P { constructor(a, s, e = "DPS") { this.id = a, this.name = s, this.role = e, this.maxHp = this.getMaxHpForRole(e), this.currentHp = this.maxHp, this.buffs = [], this.debuffs = [], this.shields = [], this.isDead = !1, this.baseDPS = this.getBaseDPSForRole(e), this.totalDamage = 0, this.damageHistory = [], this.currentDPS = 0 } getMaxHpForRole(role) { const hp = { Tank: 2500, DPS: 1200, Healer: 1000 }; return hp[role] || 1000 } getBaseDPSForRole(a) { const s = { Tank: { min: 50, max: 80 }, DPS: { min: 150, max: 250 }, Healer: { min: 20, max: 40 } }, e = s[a] || s.DPS; return Math.random() * (e.max - e.min) + e.min } takeDamage(a) { if (this.isDead) return 0; let s = a; for (let e = this.shields.length - 1; e >= 0; e--) { const t = this.shields[e]; if (t.amount >= s) { t.amount -= s, s = 0; break } else s -= t.amount, t.amount = 0 } if (s > 0) { const e = this.currentHp; this.currentHp = Math.max(0, this.currentHp - s); const t = e - this.currentHp; return this.currentHp === 0 && this.die(), t } return 0 } heal(a) { if (this.isDead) return { effective: 0, overheal: 0 }; const s = this.currentHp; this.currentHp = Math.min(this.maxHp, this.currentHp + a); const e = this.currentHp - s, t = a - e; return { effective: e, overheal: t } } die() { this.isDead = !0, this.currentHp = 0, this.buffs = [], this.debuffs = [] } resurrect() { this.isDead = !1, this.currentHp = Math.floor(this.maxHp * .4), this.buffs = [], this.debuffs = [], this.shields = [] } applyBuff(a) { const s = this.buffs.find(e => e.id === a.id); s ? (s.duration = a.duration, s.timeSinceLastTick = 0) : this.buffs.push({ ...a, timeSinceLastTick: 0 }) } applyShield(a) { this.shields.push({ ...a, maxAmount: a.amount }) } applyDebuff(a) { const s = this.debuffs.find(e => e.id === a.id); s ? (s.duration = a.duration, s.timeSinceLastTick = 0) : this.debuffs.push({ ...a, timeSinceLastTick: 0 }) } dispelDebuff() { return this.debuffs.length > 0 ? (this.debuffs.shift(), !0) : !1 } update(a, s) { if (!this.isDead) { for (let e = this.buffs.length - 1; e >= 0; e--) { const t = this.buffs[e]; if (t.duration -= a, t.timeSinceLastTick += a, t.timeSinceLastTick >= t.tickInterval) { const i = this.heal(t.healPerTick); s && i && (s.stats.totalHealing += i.effective, s.stats.totalOverheal += i.overheal, s.onCombatText && i.effective > 0 && s.onCombatText(this.id, i.effective, "heal")), t.timeSinceLastTick -= t.tickInterval } t.duration <= 0 && this.buffs.splice(e, 1) } for (let e = this.debuffs.length - 1; e >= 0; e--) { const t = this.debuffs[e]; if (t.duration -= a, t.timeSinceLastTick += a, t.timeSinceLastTick >= t.tickInterval) { const i = t.damagePerTick, n = this.takeDamage(i); s && s.onCombatText && n > 0 && s.onCombatText(this.id, n, "damage"), t.timeSinceLastTick -= t.tickInterval } t.duration <= 0 && this.debuffs.splice(e, 1) } for (let e = this.shields.length - 1; e >= 0; e--) { const t = this.shields[e]; t.duration -= a, (t.duration <= 0 || t.amount <= 0) && this.shields.splice(e, 1) } } } getHealthPercent() { return this.currentHp / this.maxHp * 100 } dealDamage(a) { if (this.isDead) return 0; const s = this.getHealthPercent(); let e = 1; s < 20 ? e = .25 : s < 40 ? e = .5 : s < 70 && (e = .8); const t = .9 + Math.random() * .2, n = this.baseDPS * e * t * a / 1e3; this.totalDamage += n, this.damageHistory.push({ timestamp: performance.now(), damage: n }); const c = performance.now() - 5e3; this.damageHistory = this.damageHistory.filter(f => f.timestamp > c); const u = this.damageHistory.reduce((f, l) => f + l.damage, 0), g = this.damageHistory.length > 0 ? (performance.now() - this.damageHistory[0].timestamp) / 1e3 : 1; return this.currentDPS = u / Math.max(g, 1), n } } class E { constructor(a, s, e, t, i, n, c = {}) { this.id = a, this.name = s, this.manaCost = e, this.castTime = t, this.cooldown = i, this.effectFn = n, this.targetDead = c.targetDead || !1, this.isChanneled = c.isChanneled || !1, this.tickInterval = c.tickInterval || 0, this.lastCastTime = 0 } canCast(a, s) { return a >= this.manaCost && s - this.lastCastTime >= this.cooldown } } const m = { FLASH_HEAL: new E("flash_heal", "Flash Heal", 15, 1500, 0, o => o.heal(250)), GREATER_HEAL: new E("greater_heal", "Greater Heal", 30, 2500, 0, o => o.heal(600)), RENEW: new E("renew", "Renew", 10, 0, 1e3, o => { o.applyBuff({ id: "renew", name: "Renew", duration: 12e3, tickInterval: 3e3, healPerTick: 150 }) }), SHIELD: new E("shield", "Shield", 25, 0, 6e3, o => (o.applyShield({ id: "shield", name: "Power Word: Shield", amount: 300, duration: 15e3 }), { effective: 0, overheal: 0 })), RESURRECTION: new E("resurrection", "Resurrection", 400, 4e3, 0, o => o.isDead ? (o.resurrect(), { effective: o.currentHp, overheal: 0 }) : null, { targetDead: !0 }), CHAIN_HEAL: new E("chain_heal", "Chain Heal", 40, 2e3, 3e3, (o, a) => ({ isChainHeal: !0, initialTarget: o, game: a })), DISPEL: new E("dispel", "Dispel", 25, 0, 8e3, o => ({ effective: 0, overheal: 0, dispelled: o.dispelDebuff() })), MEDITATION: new E("meditation", "Meditation", 0, 6e3, 3e4, (o, a) => (a.mana = Math.min(a.maxMana, a.mana + a.maxMana * .1), null), { isChanneled: !0, tickInterval: 1e3 }) }; class I {
+      constructor() { this.raidMembers = [], this.selectedTarget = null, this.mana = 1e3, this.maxMana = 1e3, this.isCasting = !1, this.currentCast = null, this.castStartTime = 0, this.channelTickTimer = 0, this.lastTick = 0, this.isRunning = !1, this.stats = { totalHealing: 0, totalOverheal: 0, totalDamage: 0 }, this.onCombatText = null, this.onChainHealEffect = null, this.bossTimer = 0, this.bossPhase = 0, this.gameOver = !1, this.bossMaxHealth = 15e5, this.bossCurrentHealth = 15e5, this.nextDotTime = 5e3, this.initRaid() } initRaid() { const a = [{ name: "Tank", role: "Tank" }, { name: "OffTank", role: "Tank" }, { name: "DPS 1", role: "DPS" }, { name: "DPS 2", role: "DPS" }, { name: "DPS 3", role: "DPS" }, { name: "Healer", role: "Healer" }, { name: "Mage", role: "DPS" }, { name: "Rogue", role: "DPS" }, { name: "Hunter", role: "DPS" }, { name: "Warlock", role: "DPS" }]; for (let s = 0; s < 25; s++) { const e = a[s % a.length], t = e.name + " " + (Math.floor(s / 10) + 1); this.raidMembers.push(new P(s, t, e.role)) } this.selectedTarget = this.raidMembers[0] } start() { this.isRunning = !0, this.lastTick = performance.now(), requestAnimationFrame(a => this.loop(a)) } loop(a) { if (!this.isRunning) return; const s = a - this.lastTick; this.lastTick = a, this.update(s, a), requestAnimationFrame(e => this.loop(e)) } update(a, s) { if (!this.gameOver) { if (this.mana < this.maxMana && (this.mana += .01 * a), this.bossLogic(a), this.raidMembers.forEach(e => { e.update(a, this); const t = e.dealDamage(a); this.stats.totalDamage += t, this.bossCurrentHealth = Math.max(0, this.bossCurrentHealth - t) }), this.isCasting && this.currentCast) { const e = s - this.castStartTime; this.currentCast.isChanneled ? (this.channelTickTimer += a, this.channelTickTimer >= this.currentCast.tickInterval && (this.channelTickTimer -= this.currentCast.tickInterval, this.currentCast.effectFn(this.castTarget, this)), e >= this.currentCast.castTime && this.completeCast(s)) : e >= this.currentCast.castTime && this.completeCast(s) } this.checkGameOver() } } bossLogic(a) {
+        this.bossTimer += a;
+        const s = this.bossCurrentHealth / this.bossMaxHealth * 100;
+        let e = 1;
+        if (s < 20 ? e = 3 : s < 40 ? e = 2.2 : s < 60 ? e = 1.7 : s < 80 && (e = 1.3));
 
-<head>
-  <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RPG Healer Simulator</title>
-  <script type="module"
-    crossorigin>(function () { const a = document.createElement("link").relList; if (a && a.supports && a.supports("modulepreload")) return; for (const t of document.querySelectorAll('link[rel="modulepreload"]')) e(t); new MutationObserver(t => { for (const i of t) if (i.type === "childList") for (const n of i.addedNodes) n.tagName === "LINK" && n.rel === "modulepreload" && e(n) }).observe(document, { childList: !0, subtree: !0 }); function s(t) { const i = {}; return t.integrity && (i.integrity = t.integrity), t.referrerPolicy && (i.referrerPolicy = t.referrerPolicy), t.crossOrigin === "use-credentials" ? i.credentials = "include" : t.crossOrigin === "anonymous" ? i.credentials = "omit" : i.credentials = "same-origin", i } function e(t) { if (t.ep) return; t.ep = !0; const i = s(t); fetch(t.href, i) } })(); class P { constructor(a, s, e = "DPS") { this.id = a, this.name = s, this.role = e, this.maxHp = 1e3, this.currentHp = 1e3, this.buffs = [], this.debuffs = [], this.shields = [], this.isDead = !1, this.baseDPS = this.getBaseDPSForRole(e), this.totalDamage = 0, this.damageHistory = [], this.currentDPS = 0 } getBaseDPSForRole(a) { const s = { Tank: { min: 50, max: 80 }, DPS: { min: 150, max: 250 }, Healer: { min: 20, max: 40 } }, e = s[a] || s.DPS; return Math.random() * (e.max - e.min) + e.min } takeDamage(a) { if (this.isDead) return 0; let s = a; for (let e = this.shields.length - 1; e >= 0; e--) { const t = this.shields[e]; if (t.amount >= s) { t.amount -= s, s = 0; break } else s -= t.amount, t.amount = 0 } if (s > 0) { const e = this.currentHp; this.currentHp = Math.max(0, this.currentHp - s); const t = e - this.currentHp; return this.currentHp === 0 && this.die(), t } return 0 } heal(a) { if (this.isDead) return { effective: 0, overheal: 0 }; const s = this.currentHp; this.currentHp = Math.min(this.maxHp, this.currentHp + a); const e = this.currentHp - s, t = a - e; return { effective: e, overheal: t } } die() { this.isDead = !0, this.currentHp = 0, this.buffs = [], this.debuffs = [] } resurrect() { this.isDead = !1, this.currentHp = Math.floor(this.maxHp * .4), this.buffs = [], this.debuffs = [], this.shields = [] } applyBuff(a) { const s = this.buffs.find(e => e.id === a.id); s ? (s.duration = a.duration, s.timeSinceLastTick = 0) : this.buffs.push({ ...a, timeSinceLastTick: 0 }) } applyShield(a) { this.shields.push({ ...a, maxAmount: a.amount }) } applyDebuff(a) { const s = this.debuffs.find(e => e.id === a.id); s ? (s.duration = a.duration, s.timeSinceLastTick = 0) : this.debuffs.push({ ...a, timeSinceLastTick: 0 }) } dispelDebuff() { return this.debuffs.length > 0 ? (this.debuffs.shift(), !0) : !1 } update(a, s) { if (!this.isDead) { for (let e = this.buffs.length - 1; e >= 0; e--) { const t = this.buffs[e]; if (t.duration -= a, t.timeSinceLastTick += a, t.timeSinceLastTick >= t.tickInterval) { const i = this.heal(t.healPerTick); s && i && (s.stats.totalHealing += i.effective, s.stats.totalOverheal += i.overheal, s.onCombatText && i.effective > 0 && s.onCombatText(this.id, i.effective, "heal")), t.timeSinceLastTick -= t.tickInterval } t.duration <= 0 && this.buffs.splice(e, 1) } for (let e = this.debuffs.length - 1; e >= 0; e--) { const t = this.debuffs[e]; if (t.duration -= a, t.timeSinceLastTick += a, t.timeSinceLastTick >= t.tickInterval) { const i = t.damagePerTick, n = this.takeDamage(i); s && s.onCombatText && n > 0 && s.onCombatText(this.id, n, "damage"), t.timeSinceLastTick -= t.tickInterval } t.duration <= 0 && this.debuffs.splice(e, 1) } for (let e = this.shields.length - 1; e >= 0; e--) { const t = this.shields[e]; t.duration -= a, (t.duration <= 0 || t.amount <= 0) && this.shields.splice(e, 1) } } } getHealthPercent() { return this.currentHp / this.maxHp * 100 } dealDamage(a) { if (this.isDead) return 0; const s = this.getHealthPercent(); let e = 1; s < 20 ? e = .25 : s < 40 ? e = .5 : s < 70 && (e = .8); const t = .9 + Math.random() * .2, n = this.baseDPS * e * t * a / 1e3; this.totalDamage += n, this.damageHistory.push({ timestamp: performance.now(), damage: n }); const c = performance.now() - 5e3; this.damageHistory = this.damageHistory.filter(f => f.timestamp > c); const u = this.damageHistory.reduce((f, l) => f + l.damage, 0), g = this.damageHistory.length > 0 ? (performance.now() - this.damageHistory[0].timestamp) / 1e3 : 1; return this.currentDPS = u / Math.max(g, 1), n } } class E { constructor(a, s, e, t, i, n, c = {}) { this.id = a, this.name = s, this.manaCost = e, this.castTime = t, this.cooldown = i, this.effectFn = n, this.targetDead = c.targetDead || !1, this.isChanneled = c.isChanneled || !1, this.tickInterval = c.tickInterval || 0, this.lastCastTime = 0 } canCast(a, s) { return a >= this.manaCost && s - this.lastCastTime >= this.cooldown } } const m = { FLASH_HEAL: new E("flash_heal", "Flash Heal", 15, 1500, 0, o => o.heal(250)), GREATER_HEAL: new E("greater_heal", "Greater Heal", 30, 2500, 0, o => o.heal(600)), RENEW: new E("renew", "Renew", 10, 0, 1e3, o => { o.applyBuff({ id: "renew", name: "Renew", duration: 12e3, tickInterval: 3e3, healPerTick: 150 }) }), SHIELD: new E("shield", "Shield", 25, 0, 6e3, o => (o.applyShield({ id: "shield", name: "Power Word: Shield", amount: 300, duration: 15e3 }), { effective: 0, overheal: 0 })), RESURRECTION: new E("resurrection", "Resurrection", 400, 4e3, 0, o => o.isDead ? (o.resurrect(), { effective: o.currentHp, overheal: 0 }) : null, { targetDead: !0 }), CHAIN_HEAL: new E("chain_heal", "Chain Heal", 40, 2e3, 3e3, (o, a) => ({ isChainHeal: !0, initialTarget: o, game: a })), DISPEL: new E("dispel", "Dispel", 25, 0, 8e3, o => ({ effective: 0, overheal: 0, dispelled: o.dispelDebuff() })), MEDITATION: new E("meditation", "Meditation", 0, 6e3, 3e4, (o, a) => (a.mana = Math.min(a.maxMana, a.mana + a.maxMana * .1), null), { isChanneled: !0, tickInterval: 1e3 }) }; class I {
-        constructor() { this.raidMembers = [], this.selectedTarget = null, this.mana = 1e3, this.maxMana = 1e3, this.isCasting = !1, this.currentCast = null, this.castStartTime = 0, this.channelTickTimer = 0, this.lastTick = 0, this.isRunning = !1, this.stats = { totalHealing: 0, totalOverheal: 0, totalDamage: 0 }, this.onCombatText = null, this.onChainHealEffect = null, this.bossTimer = 0, this.bossPhase = 0, this.gameOver = !1, this.bossMaxHealth = 15e5, this.bossCurrentHealth = 15e5, this.nextDotTime = 5e3, this.initRaid() } initRaid() { const a = [{ name: "Tank", role: "Tank" }, { name: "OffTank", role: "Tank" }, { name: "DPS 1", role: "DPS" }, { name: "DPS 2", role: "DPS" }, { name: "DPS 3", role: "DPS" }, { name: "Healer", role: "Healer" }, { name: "Mage", role: "DPS" }, { name: "Rogue", role: "DPS" }, { name: "Hunter", role: "DPS" }, { name: "Warlock", role: "DPS" }]; for (let s = 0; s < 25; s++) { const e = a[s % a.length], t = e.name + " " + (Math.floor(s / 10) + 1); this.raidMembers.push(new P(s, t, e.role)) } this.selectedTarget = this.raidMembers[0] } start() { this.isRunning = !0, this.lastTick = performance.now(), requestAnimationFrame(a => this.loop(a)) } loop(a) { if (!this.isRunning) return; const s = a - this.lastTick; this.lastTick = a, this.update(s, a), requestAnimationFrame(e => this.loop(e)) } update(a, s) { if (!this.gameOver) { if (this.mana < this.maxMana && (this.mana += .01 * a), this.bossLogic(a), this.raidMembers.forEach(e => { e.update(a, this); const t = e.dealDamage(a); this.stats.totalDamage += t, this.bossCurrentHealth = Math.max(0, this.bossCurrentHealth - t) }), this.isCasting && this.currentCast) { const e = s - this.castStartTime; this.currentCast.isChanneled ? (this.channelTickTimer += a, this.channelTickTimer >= this.currentCast.tickInterval && (this.channelTickTimer -= this.currentCast.tickInterval, this.currentCast.effectFn(this.castTarget, this)), e >= this.currentCast.castTime && this.completeCast(s)) : e >= this.currentCast.castTime && this.completeCast(s) } this.checkGameOver() } } bossLogic(a) {
-          this.bossTimer += a;
-          const s = this.bossCurrentHealth / this.bossMaxHealth * 100;
-          let e = 1;
-          if (s < 20 ? e = 3 : s < 40 ? e = 2.2 : s < 60 ? e = 1.7 : s < 80 && (e = 1.3));
+        // Difficulty Scaling: +5% damage per dead player
+        const aliveMembers = this.raidMembers.filter(m => !m.isDead);
+        const deadCount = this.raidMembers.length - aliveMembers.length;
+        const deathMultiplier = 1 + (deadCount * 0.05);
 
-          // Difficulty Scaling: +5% damage per dead player
-          const aliveMembers = this.raidMembers.filter(m => !m.isDead);
-          const deadCount = this.raidMembers.length - aliveMembers.length;
-          const deathMultiplier = 1 + (deadCount * 0.05);
+        // Apply death multiplier to base multiplier
+        e *= deathMultiplier;
 
-          // Apply death multiplier to base multiplier
-          e *= deathMultiplier;
-
-          if (Math.random() < .05 && aliveMembers.length > 0) {
+        if (Math.random() < .05 && aliveMembers.length > 0) {
+          const t = Math.floor(Math.random() * aliveMembers.length);
+          const target = aliveMembers[t];
+          const i = Math.floor(Math.random() * 50) + 10;
+          const n = Math.floor(i * e);
+          const c = target.takeDamage(n);
+          this.onCombatText && c > 0 && this.onCombatText(target.id, c, "damage")
+        }
+        if (this.bossTimer > 1e4) {
+          this.bossTimer = 0;
+          const i = Math.floor(100 * e);
+          // Raid wide damage hits everyone, dead or alive (doesn't matter for dead)
+          this.raidMembers.forEach(n => {
+            const c = n.takeDamage(i);
+            this.onCombatText && c > 0 && this.onCombatText(n.id, c, "damage")
+          }), console.log(`Raid Wide Damage! (${i} damage, ${e.toFixed(1)}x multiplier)`)
+        }
+        if (this.nextDotTime -= a, this.nextDotTime <= 0) {
+          this.nextDotTime = 1e4 + Math.random() * 1e4;
+          if (aliveMembers.length > 0) {
             const t = Math.floor(Math.random() * aliveMembers.length);
-            const target = aliveMembers[t];
-            const i = Math.floor(Math.random() * 50) + 10;
-            const n = Math.floor(i * e);
-            const c = target.takeDamage(n);
-            this.onCombatText && c > 0 && this.onCombatText(target.id, c, "damage")
+            const i = aliveMembers[t];
+            const c = Math.floor(150 * e);
+            i.applyDebuff({
+              id: "shadow_pain",
+              name: "Shadow Pain",
+              duration: 15e3,
+              tickInterval: 3e3,
+              damagePerTick: c
+            }), console.log(`Applied Shadow Pain to ${i.name}`), this.onCombatText && this.onCombatText(i.id, "Shadow Pain", "damage")
           }
-          if (this.bossTimer > 1e4) {
-            this.bossTimer = 0;
-            const i = Math.floor(100 * e);
-            // Raid wide damage hits everyone, dead or alive (doesn't matter for dead)
-            this.raidMembers.forEach(n => {
-              const c = n.takeDamage(i);
-              this.onCombatText && c > 0 && this.onCombatText(n.id, c, "damage")
-            }), console.log(`Raid Wide Damage! (${i} damage, ${e.toFixed(1)}x multiplier)`)
-          }
-          if (this.nextDotTime -= a, this.nextDotTime <= 0) {
-            this.nextDotTime = 1e4 + Math.random() * 1e4;
-            if (aliveMembers.length > 0) {
-              const t = Math.floor(Math.random() * aliveMembers.length);
-              const i = aliveMembers[t];
-              const c = Math.floor(150 * e);
-              i.applyDebuff({
-                id: "shadow_pain",
-                name: "Shadow Pain",
-                duration: 15e3,
-                tickInterval: 3e3,
-                damagePerTick: c
-              }), console.log(`Applied Shadow Pain to ${i.name}`), this.onCombatText && this.onCombatText(i.id, "Shadow Pain", "damage")
-            }
-          }
-        } checkGameOver() { this.raidMembers.filter(s => !s.isDead).length === 0 && (this.gameOver = !0, this.isRunning = !1, console.log("Game Over")) } startCast(a, s = null) { if (this.isCasting) return; const e = Object.values(m).find(i => i.id === a); if (!e || !e.canCast(this.mana, performance.now())) return; const t = s !== null ? this.raidMembers.find(i => i.id === s) : this.selectedTarget; if (t && !(t.isDead && !e.targetDead)) if (e.castTime === 0) { this.mana -= e.manaCost, e.lastCastTime = performance.now(); const i = e.effectFn(t, this); i && (i.isChainHeal ? this.processChainHeal(t, 800) : (this.stats.totalHealing += i.effective, this.stats.totalOverheal += i.overheal, this.onCombatText && i.effective > 0 && this.onCombatText(t.id, i.effective, "heal"))) } else this.isCasting = !0, this.currentCast = e, this.castStartTime = performance.now(), this.castTarget = t, e.isChanneled && (this.channelTickTimer = 0) } completeCast(a) { const s = this.castTarget || this.selectedTarget; if (!s || s.isDead && !this.currentCast.targetDead) { this.isCasting = !1, this.currentCast = null, this.castTarget = null; return } if (this.mana -= this.currentCast.manaCost, this.currentCast.lastCastTime = a, !this.currentCast.isChanneled) { const e = this.currentCast.effectFn(s, this); e && (e.isChainHeal ? this.processChainHeal(s, 800) : (this.stats.totalHealing += e.effective, this.stats.totalOverheal += e.overheal, this.onCombatText && e.effective > 0 && this.onCombatText(s.id, e.effective, "heal"))) } this.isCasting = !1, this.currentCast = null, this.castTarget = null } selectTarget(a) { this.selectedTarget = this.raidMembers.find(s => s.id === a) } getAdjacentMembers(a) { const e = Math.floor(a.id / 5), t = a.id % 5, i = []; for (let n = e - 1; n <= e + 1; n++)for (let c = t - 1; c <= t + 1; c++) { if (n === e && c === t || n < 0 || c < 0 || c >= 5) continue; const u = n * 5 + c, g = this.raidMembers.find(f => f.id === u); g && !g.isDead && i.push(g) } return i } processChainHeal(a, s) { const e = [a], t = new Set([a.id]); let i = a, n = s; const c = i.heal(n); this.stats.totalHealing += c.effective, this.stats.totalOverheal += c.overheal, this.onCombatText && c.effective > 0 && this.onCombatText(i.id, c.effective, "heal"); for (let u = 0; u < 3; u++) { n = Math.floor(n * .5); const g = this.getAdjacentMembers(i).filter(f => !t.has(f.id)); if (g.length > 0) { i = g.reduce((l, p) => p.getHealthPercent() < l.getHealthPercent() ? p : l), e.push(i), t.add(i.id); const f = i.heal(n); this.stats.totalHealing += f.effective, this.stats.totalOverheal += f.overheal, this.onCombatText && f.effective > 0 && this.onCombatText(i.id, f.effective, "heal") } else break } return this.onChainHealEffect && e.length > 1 && this.onChainHealEffect(e), { effective: 0, overheal: 0 } } getTopDPSPlayers(a = 5) { return this.raidMembers.filter(s => !s.isDead).sort((s, e) => e.currentDPS - s.currentDPS).slice(0, a) } getTotalRaidDPS() { return this.raidMembers.filter(a => !a.isDead).reduce((a, s) => a + s.currentDPS, 0) }
-      } const r = new I; document.getElementById("raid-frames"); const R = document.querySelector("#mana-bar .bar-fill"), B = document.querySelector("#mana-bar .bar-text"), M = document.getElementById("cast-bar"), H = document.getElementById("cast-fill"), x = document.getElementById("cast-name"), O = document.getElementById("spell-bar"), $ = document.getElementById("stat-healing"), A = document.getElementById("stat-overheal"), N = document.getElementById("stat-overheal-pct"); let S = !1, D = null; function F() {
-        const o = document.getElementById("raid-frames"); o.innerHTML = "", r.raidMembers.forEach(t => { const i = document.createElement("div"); i.className = "raid-frame", i.id = `frame-${t.id}`, i.onclick = () => { r.selectTarget(t.id), L() }, i.onmouseenter = () => { D = t.id }, i.onmouseleave = () => { D === t.id && (D = null) }; const n = document.createElement("div"); n.className = "frame-name", n.textContent = t.name; const c = document.createElement("div"); c.className = "health-bar", c.id = `health-${t.id}`; const u = document.createElement("div"); u.className = "buff-container", u.id = `buffs-${t.id}`; const g = document.createElement("div"); g.className = "shield-overlay", g.id = `shield-${t.id}`, i.appendChild(n), i.appendChild(c), i.appendChild(g), i.appendChild(u), o.appendChild(i) }); const a = document.getElementById("spell-bar"); a.innerHTML = ""; const s = ["1", "2", "3", "4", "5", "6", "7", "8"]; Object.values(m).forEach((t, i) => {
-          const n = document.createElement("div"); n.className = "spell-btn", n.innerHTML = `
+        }
+      } checkGameOver() { this.raidMembers.filter(s => !s.isDead).length === 0 && (this.gameOver = !0, this.isRunning = !1, console.log("Game Over")) } startCast(a, s = null) { if (this.isCasting) return; const e = Object.values(m).find(i => i.id === a); if (!e || !e.canCast(this.mana, performance.now())) return; const t = s !== null ? this.raidMembers.find(i => i.id === s) : this.selectedTarget; if (t && !(t.isDead && !e.targetDead)) if (e.castTime === 0) { this.mana -= e.manaCost, e.lastCastTime = performance.now(); const i = e.effectFn(t, this); i && (i.isChainHeal ? this.processChainHeal(t, 800) : (this.stats.totalHealing += i.effective, this.stats.totalOverheal += i.overheal, this.onCombatText && i.effective > 0 && this.onCombatText(t.id, i.effective, "heal"))) } else this.isCasting = !0, this.currentCast = e, this.castStartTime = performance.now(), this.castTarget = t, e.isChanneled && (this.channelTickTimer = 0) } completeCast(a) { const s = this.castTarget || this.selectedTarget; if (!s || s.isDead && !this.currentCast.targetDead) { this.isCasting = !1, this.currentCast = null, this.castTarget = null; return } if (this.mana -= this.currentCast.manaCost, this.currentCast.lastCastTime = a, !this.currentCast.isChanneled) { const e = this.currentCast.effectFn(s, this); e && (e.isChainHeal ? this.processChainHeal(s, 800) : (this.stats.totalHealing += e.effective, this.stats.totalOverheal += e.overheal, this.onCombatText && e.effective > 0 && this.onCombatText(s.id, e.effective, "heal"))) } this.isCasting = !1, this.currentCast = null, this.castTarget = null } selectTarget(a) { this.selectedTarget = this.raidMembers.find(s => s.id === a) } getAdjacentMembers(a) { const e = Math.floor(a.id / 5), t = a.id % 5, i = []; for (let n = e - 1; n <= e + 1; n++)for (let c = t - 1; c <= t + 1; c++) { if (n === e && c === t || n < 0 || c < 0 || c >= 5) continue; const u = n * 5 + c, g = this.raidMembers.find(f => f.id === u); g && !g.isDead && i.push(g) } return i } processChainHeal(a, s) { const e = [a], t = new Set([a.id]); let i = a, n = s; const c = i.heal(n); this.stats.totalHealing += c.effective, this.stats.totalOverheal += c.overheal, this.onCombatText && c.effective > 0 && this.onCombatText(i.id, c.effective, "heal"); for (let u = 0; u < 3; u++) { n = Math.floor(n * .5); const g = this.getAdjacentMembers(i).filter(f => !t.has(f.id)); if (g.length > 0) { i = g.reduce((l, p) => p.getHealthPercent() < l.getHealthPercent() ? p : l), e.push(i), t.add(i.id); const f = i.heal(n); this.stats.totalHealing += f.effective, this.stats.totalOverheal += f.overheal, this.onCombatText && f.effective > 0 && this.onCombatText(i.id, f.effective, "heal") } else break } return this.onChainHealEffect && e.length > 1 && this.onChainHealEffect(e), { effective: 0, overheal: 0 } } getTopDPSPlayers(a = 5) { return this.raidMembers.filter(s => !s.isDead).sort((s, e) => e.currentDPS - s.currentDPS).slice(0, a) } getTotalRaidDPS() { return this.raidMembers.filter(a => !a.isDead).reduce((a, s) => a + s.currentDPS, 0) }
+    } const r = new I; document.getElementById("raid-frames"); const R = document.querySelector("#mana-bar .bar-fill"), B = document.querySelector("#mana-bar .bar-text"), M = document.getElementById("cast-bar"), H = document.getElementById("cast-fill"), x = document.getElementById("cast-name"), O = document.getElementById("spell-bar"), $ = document.getElementById("stat-healing"), A = document.getElementById("stat-overheal"), N = document.getElementById("stat-overheal-pct"); let S = !1, D = null; function F() {
+      const o = document.getElementById("raid-frames"); o.innerHTML = "", r.raidMembers.forEach(t => { const i = document.createElement("div"); i.className = "raid-frame", i.id = `frame-${t.id}`, i.onclick = () => { r.selectTarget(t.id), L() }, i.onmouseenter = () => { D = t.id }, i.onmouseleave = () => { D === t.id && (D = null) }; const n = document.createElement("div"); n.className = "frame-name", n.textContent = t.name; const c = document.createElement("div"); c.className = "health-bar", c.id = `health-${t.id}`; const u = document.createElement("div"); u.className = "buff-container", u.id = `buffs-${t.id}`; const g = document.createElement("div"); g.className = "shield-overlay", g.id = `shield-${t.id}`, i.appendChild(n), i.appendChild(c), i.appendChild(g), i.appendChild(u), o.appendChild(i) }); const a = document.getElementById("spell-bar"); a.innerHTML = ""; const s = ["1", "2", "3", "4", "Q", "E", "R", "F"]; Object.values(m).forEach((t, i) => {
+        const n = document.createElement("div"); n.className = "spell-btn", n.innerHTML = `
       <span>${t.name}</span>
       <span class="keybind">${s[i]}</span>
     `, n.onclick = () => r.startCast(t.id), a.appendChild(n)
-        }); const e = document.getElementById("mouseover-toggle"); e && (e.onchange = t => { S = t.target.checked, console.log("Mouse-Over Mode:", S) }), document.addEventListener("keydown", t => { if (!r.gameOver) { if (S && D !== null) { const i = D; t.key === "1" && r.startCast(m.FLASH_HEAL.id, i), t.key === "2" && r.startCast(m.GREATER_HEAL.id, i), t.key === "3" && r.startCast(m.RENEW.id, i), t.key === "4" && r.startCast(m.SHIELD.id, i), t.key === "5" && r.startCast(m.RESURRECTION.id, i), t.key === "6" && r.startCast(m.CHAIN_HEAL.id, i), t.key === "7" && r.startCast(m.DISPEL.id, i), t.key === "8" && r.startCast(m.MEDITATION.id, i); return } t.key === "1" && r.startCast(m.FLASH_HEAL.id), t.key === "2" && r.startCast(m.GREATER_HEAL.id), t.key === "3" && r.startCast(m.RENEW.id), t.key === "4" && r.startCast(m.SHIELD.id), t.key === "5" && r.startCast(m.RESURRECTION.id), t.key === "6" && r.startCast(m.CHAIN_HEAL.id), t.key === "7" && r.startCast(m.DISPEL.id), t.key === "8" && r.startCast(m.MEDITATION.id) } })
-      } function L() { if (document.querySelectorAll(".raid-frame").forEach(o => o.classList.remove("selected")), r.selectedTarget) { const o = document.getElementById(`frame-${r.selectedTarget.id}`); o && o.classList.add("selected") } } function k() {
-        r.raidMembers.forEach(l => {
-          const p = document.getElementById(`health-${l.id}`), d = document.getElementById(`frame-${l.id}`); if (l.isDead) d.classList.add("dead"), p.style.width = "0%"; else {
-            d.classList.remove("dead"); const T = l.getHealthPercent(); p.style.width = `${T}%`, T > 70 ? p.style.backgroundColor = "var(--health-good)" : T > 30 ? p.style.backgroundColor = "var(--health-medium)" : p.style.backgroundColor = "var(--health-low)"; const h = document.getElementById(`buffs-${l.id}`); h && (h.innerHTML = "", l.buffs.forEach(v => { const b = document.createElement("div"); b.className = "buff-icon", h.appendChild(b) }), l.debuffs.forEach(v => { const b = document.createElement("div"); b.className = "debuff-icon", h.appendChild(b) })); const C = document.getElementById(`shield-${l.id}`); if (C) { const v = l.shields.reduce((b, y) => b + y.amount, 0); if (v > 0) { C.classList.add("active"); const b = Math.min(100, v / l.maxHp * 100); C.style.height = `${b}%` } else C.classList.remove("active"), C.style.height = "0%" } d.title = `${l.name}
+      }); const e = document.getElementById("mouseover-toggle"); e && (e.onchange = t => { S = t.target.checked, console.log("Mouse-Over Mode:", S) }), document.addEventListener("keydown", t => { if (!r.gameOver) { if (S && D !== null) { const i = D; t.key === "1" && r.startCast(m.FLASH_HEAL.id, i), t.key === "2" && r.startCast(m.GREATER_HEAL.id, i), t.key === "3" && r.startCast(m.RENEW.id, i), t.key === "4" && r.startCast(m.SHIELD.id, i), (t.key === "q" || t.key === "Q") && r.startCast(m.RESURRECTION.id, i), (t.key === "e" || t.key === "E") && r.startCast(m.CHAIN_HEAL.id, i), (t.key === "r" || t.key === "R") && r.startCast(m.DISPEL.id, i), (t.key === "f" || t.key === "F") && r.startCast(m.MEDITATION.id, i); return } t.key === "1" && r.startCast(m.FLASH_HEAL.id), t.key === "2" && r.startCast(m.GREATER_HEAL.id), t.key === "3" && r.startCast(m.RENEW.id), t.key === "4" && r.startCast(m.SHIELD.id), (t.key === "q" || t.key === "Q") && r.startCast(m.RESURRECTION.id), (t.key === "e" || t.key === "E") && r.startCast(m.CHAIN_HEAL.id), (t.key === "r" || t.key === "R") && r.startCast(m.DISPEL.id), (t.key === "f" || t.key === "F") && r.startCast(m.MEDITATION.id) } })
+    } function L() { if (document.querySelectorAll(".raid-frame").forEach(o => o.classList.remove("selected")), r.selectedTarget) { const o = document.getElementById(`frame-${r.selectedTarget.id}`); o && o.classList.add("selected") } } function k() {
+      const showHealthText = document.getElementById('health-text-toggle')?.checked;
+      r.raidMembers.forEach(l => {
+        const p = document.getElementById(`health-${l.id}`), d = document.getElementById(`frame-${l.id}`);
+        let ht = document.getElementById(`ht-${l.id}`);
+        if (!ht) { ht = document.createElement("div"); ht.className = "health-text"; ht.id = `ht-${l.id}`; d.appendChild(ht); }
+        if (showHealthText) { ht.textContent = Math.floor(l.currentHp); ht.classList.add("visible"); } else { ht.classList.remove("visible"); } if (l.isDead) d.classList.add("dead"), p.style.width = "0%"; else {
+          d.classList.remove("dead"); const T = l.getHealthPercent(); p.style.width = `${T}%`, T > 70 ? p.style.backgroundColor = "var(--health-good)" : T > 30 ? p.style.backgroundColor = "var(--health-medium)" : p.style.backgroundColor = "var(--health-low)"; const h = document.getElementById(`buffs-${l.id}`); h && (h.innerHTML = "", l.buffs.forEach(v => { const b = document.createElement("div"); b.className = "buff-icon", h.appendChild(b) }), l.debuffs.forEach(v => { const b = document.createElement("div"); b.className = "debuff-icon", h.appendChild(b) })); const C = document.getElementById(`shield-${l.id}`); if (C) { const v = l.shields.reduce((b, y) => b + y.amount, 0); if (v > 0) { C.classList.add("active"); const b = Math.min(100, v / l.maxHp * 100); C.style.height = `${b}%` } else C.classList.remove("active"), C.style.height = "0%" } d.title = `${l.name}
 Role: ${l.role}
 DPS: ${Math.floor(l.currentDPS).toLocaleString()}
 Total Damage: ${Math.floor(l.totalDamage).toLocaleString()}`
-          }
-        }); const o = document.getElementById("boss-health-fill"), a = document.getElementById("boss-health-text"), s = document.getElementById("boss-enrage-indicator"); if (o && a) { const l = r.bossCurrentHealth / r.bossMaxHealth * 100; o.style.width = `${l}%`, a.textContent = `${l.toFixed(1)}%`, l < 40 ? (o.classList.add("low"), o.classList.remove("medium")) : l < 70 ? (o.classList.add("medium"), o.classList.remove("low")) : o.classList.remove("low", "medium"), s && (l < 20 ? s.classList.remove("hidden") : s.classList.add("hidden")) } const e = r.mana / r.maxMana * 100; if (R.style.width = `${e}%`, B.textContent = `Mana: ${Math.floor(r.mana)} / ${r.maxMana}`, r.isCasting && r.currentCast) { M.classList.remove("hidden"); const l = performance.now() - r.castStartTime, p = Math.min(100, l / r.currentCast.castTime * 100); H.style.width = `${p}%`, r.currentCast.isChanneled ? (x.textContent = `Channeling ${r.currentCast.name}`, H.classList.add("channeling")) : (x.textContent = `Casting ${r.currentCast.name}`, H.classList.remove("channeling")) } else M.classList.add("hidden"); const t = Math.floor(r.stats.totalHealing), i = Math.floor(r.stats.totalOverheal), n = t > 0 ? (i / (t + i) * 100).toFixed(1) : 0; $.textContent = t.toLocaleString(), A.textContent = i.toLocaleString(), N.textContent = `${n}%`; const c = performance.now(); Object.values(m).forEach((l, p) => { const d = O.children[p]; if (!d) return; const T = l.lastCastTime + l.cooldown - c; if (T > 0) { d.classList.add("cooldown"); let h = d.querySelector(".cooldown-overlay"); h || (h = document.createElement("div"), h.className = "cooldown-overlay", d.appendChild(h)); const C = T / l.cooldown * 100; h.style.background = `conic-gradient(rgba(0,0,0,0.7) ${C}%, transparent ${C}%)`; let v = d.querySelector(".cooldown-text"); v || (v = document.createElement("div"), v.className = "cooldown-text", d.appendChild(v)), v.textContent = (T / 1e3).toFixed(1) } else { d.classList.remove("cooldown"); const h = d.querySelector(".cooldown-overlay"), C = d.querySelector(".cooldown-text"); h && h.remove(), C && C.remove() } }); const u = r.getTotalRaidDPS(), g = document.getElementById("total-raid-dps"); g && (g.textContent = Math.floor(u).toLocaleString() + " DPS"); const f = document.getElementById("dps-list"); if (f) { const l = r.getTopDPSPlayers(10); f.innerHTML = ""; const p = l.length > 0 ? l[0].currentDPS : 1; l.forEach((d, T) => { const h = document.createElement("div"); h.className = "dps-item"; const C = document.createElement("div"); C.className = "dps-player-info", C.textContent = `${T + 1}. ${d.name}`; const v = document.createElement("div"); v.className = "dps-value", v.textContent = Math.floor(d.currentDPS).toLocaleString(); const b = document.createElement("div"); b.className = "dps-bar-container"; const y = document.createElement("div"); y.className = "dps-bar"; const w = d.currentDPS / p * 100; y.style.width = `${w}%`, d.role === "Tank" ? y.style.backgroundColor = "#3498db" : d.role === "Healer" ? y.style.backgroundColor = "#2ecc71" : y.style.backgroundColor = "#e74c3c", b.appendChild(y), h.appendChild(C), h.appendChild(v), h.appendChild(b), f.appendChild(h) }) } if (r.gameOver) { document.getElementById("game-over-overlay").classList.remove("hidden"); return } requestAnimationFrame(k)
-      } function _(o, a, s) { const e = document.getElementById(`frame-${o}`); if (!e) return; const t = document.createElement("div"); t.className = `floating-text ${s}`, t.textContent = a; const i = (Math.random() - .5) * 40; t.style.transform = `translateX(${i}px)`, e.appendChild(t), setTimeout(() => { t.remove() }, 1e3) } function q(o) { const a = document.getElementById("chain-heal-overlay"); if (!a || o.length < 2) return; for (let e = 0; e < o.length - 1; e++) { const t = document.getElementById(`frame-${o[e].id}`), i = document.getElementById(`frame-${o[e + 1].id}`); if (!t || !i) continue; const n = t.getBoundingClientRect(), c = i.getBoundingClientRect(), u = a.getBoundingClientRect(), g = n.left + n.width / 2 - u.left, f = n.top + n.height / 2 - u.top, l = c.left + c.width / 2 - u.left, p = c.top + c.height / 2 - u.top; setTimeout(() => { const d = document.createElementNS("http://www.w3.org/2000/svg", "line"); d.setAttribute("x1", g), d.setAttribute("y1", f), d.setAttribute("x2", l), d.setAttribute("y2", p), d.setAttribute("class", "chain-beam"), a.appendChild(d), i.classList.add("chain-heal-glow"), setTimeout(() => { d.remove(), i.classList.remove("chain-heal-glow") }, 600) }, e * 300) } const s = document.getElementById(`frame-${o[0].id}`); s && (s.classList.add("chain-heal-glow"), setTimeout(() => { s.classList.remove("chain-heal-glow") }, 600)) } r.onCombatText = _; r.onChainHealEffect = q; F(); r.start(); k(); L();</script>
-  <style rel="stylesheet" crossorigin>
-    :root {
-      --bg-color: #1a1a1a;
-      --frame-bg: #2a2a2a;
-      --health-good: #2ecc71;
-      --health-medium: #f1c40f;
-      --health-low: #e74c3c;
-      --mana-color: #3498db;
-      --border-color: #444;
-      --highlight-color: #f39c12;
-      --bg-panel: #2d2d2d;
-      --text-primary: #ffffff;
-      --text-secondary: #b3b3b3
+        }
+      }); const o = document.getElementById("boss-health-fill"), a = document.getElementById("boss-health-text"), s = document.getElementById("boss-enrage-indicator"); if (o && a) { const l = r.bossCurrentHealth / r.bossMaxHealth * 100; o.style.width = `${l}%`, a.textContent = `${l.toFixed(1)}%`, l < 40 ? (o.classList.add("low"), o.classList.remove("medium")) : l < 70 ? (o.classList.add("medium"), o.classList.remove("low")) : o.classList.remove("low", "medium"), s && (l < 20 ? s.classList.remove("hidden") : s.classList.add("hidden")) } const e = r.mana / r.maxMana * 100; if (R.style.width = `${e}%`, B.textContent = `Mana: ${Math.floor(r.mana)} / ${r.maxMana}`, r.isCasting && r.currentCast) { M.classList.remove("hidden"); const l = performance.now() - r.castStartTime, p = Math.min(100, l / r.currentCast.castTime * 100); H.style.width = `${p}%`, r.currentCast.isChanneled ? (x.textContent = `Channeling ${r.currentCast.name}`, H.classList.add("channeling")) : (x.textContent = `Casting ${r.currentCast.name}`, H.classList.remove("channeling")) } else M.classList.add("hidden"); const t = Math.floor(r.stats.totalHealing), i = Math.floor(r.stats.totalOverheal), n = t > 0 ? (i / (t + i) * 100).toFixed(1) : 0; $.textContent = t.toLocaleString(), A.textContent = i.toLocaleString(), N.textContent = `${n}%`; const c = performance.now(); Object.values(m).forEach((l, p) => { const d = O.children[p]; if (!d) return; const T = l.lastCastTime + l.cooldown - c; if (T > 0) { d.classList.add("cooldown"); let h = d.querySelector(".cooldown-overlay"); h || (h = document.createElement("div"), h.className = "cooldown-overlay", d.appendChild(h)); const C = T / l.cooldown * 100; h.style.background = `conic-gradient(rgba(0,0,0,0.7) ${C}%, transparent ${C}%)`; let v = d.querySelector(".cooldown-text"); v || (v = document.createElement("div"), v.className = "cooldown-text", d.appendChild(v)), v.textContent = (T / 1e3).toFixed(1) } else { d.classList.remove("cooldown"); const h = d.querySelector(".cooldown-overlay"), C = d.querySelector(".cooldown-text"); h && h.remove(), C && C.remove() } }); const u = r.getTotalRaidDPS(), g = document.getElementById("total-raid-dps"); g && (g.textContent = Math.floor(u).toLocaleString() + " DPS"); const f = document.getElementById("dps-list"); if (f) { const l = r.getTopDPSPlayers(10); f.innerHTML = ""; const p = l.length > 0 ? l[0].currentDPS : 1; l.forEach((d, T) => { const h = document.createElement("div"); h.className = "dps-item"; const C = document.createElement("div"); C.className = "dps-player-info", C.textContent = `${T + 1}. ${d.name}`; const v = document.createElement("div"); v.className = "dps-value", v.textContent = Math.floor(d.currentDPS).toLocaleString(); const b = document.createElement("div"); b.className = "dps-bar-container"; const y = document.createElement("div"); y.className = "dps-bar"; const w = d.currentDPS / p * 100; y.style.width = `${w}%`, d.role === "Tank" ? y.style.backgroundColor = "#3498db" : d.role === "Healer" ? y.style.backgroundColor = "#2ecc71" : y.style.backgroundColor = "#e74c3c", b.appendChild(y), h.appendChild(C), h.appendChild(v), h.appendChild(b), f.appendChild(h) }) } if (r.gameOver) { document.getElementById("game-over-overlay").classList.remove("hidden"); return } requestAnimationFrame(k)
+    } function _(o, a, s) { const e = document.getElementById(`frame-${o}`); if (!e) return; const t = document.createElement("div"); t.className = `floating-text ${s}`, t.textContent = a; const i = (Math.random() - .5) * 40; t.style.transform = `translateX(${i}px)`, e.appendChild(t), setTimeout(() => { t.remove() }, 1e3) } function q(o) { const a = document.getElementById("chain-heal-overlay"); if (!a || o.length < 2) return; for (let e = 0; e < o.length - 1; e++) { const t = document.getElementById(`frame-${o[e].id}`), i = document.getElementById(`frame-${o[e + 1].id}`); if (!t || !i) continue; const n = t.getBoundingClientRect(), c = i.getBoundingClientRect(), u = a.getBoundingClientRect(), g = n.left + n.width / 2 - u.left, f = n.top + n.height / 2 - u.top, l = c.left + c.width / 2 - u.left, p = c.top + c.height / 2 - u.top; setTimeout(() => { const d = document.createElementNS("http://www.w3.org/2000/svg", "line"); d.setAttribute("x1", g), d.setAttribute("y1", f), d.setAttribute("x2", l), d.setAttribute("y2", p), d.setAttribute("class", "chain-beam"), a.appendChild(d), i.classList.add("chain-heal-glow"), setTimeout(() => { d.remove(), i.classList.remove("chain-heal-glow") }, 600) }, e * 300) } const s = document.getElementById(`frame-${o[0].id}`); s && (s.classList.add("chain-heal-glow"), setTimeout(() => { s.classList.remove("chain-heal-glow") }, 600)) } r.onCombatText = _; r.onChainHealEffect = q; F(); r.start(); k(); L();</script>
+<style rel="stylesheet" crossorigin>
+  :root {
+    --bg-color: #1a1a1a;
+    --frame-bg: #2a2a2a;
+    --health-good: #2ecc71;
+    --health-medium: #f1c40f;
+    --health-low: #e74c3c;
+    --mana-color: #3498db;
+    --border-color: #444;
+    --highlight-color: #f39c12;
+    --bg-panel: #2d2d2d;
+    --text-primary: #ffffff;
+    --text-secondary: #b3b3b3
+  }
+
+  * {
+    box-sizing: border-box
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--bg-color);
+    color: #fff;
+    font-family: Segoe UI, Tahoma, Geneva, Verdana, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden
+  }
+
+  #game-container {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    width: 100vw;
+    height: 100vh;
+    padding: 10px;
+    overflow: hidden
+  }
+
+  #main-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 10px;
+    overflow: hidden
+  }
+
+  .raid-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 5px;
+    padding: 5px;
+    background: #222;
+    border-radius: 8px;
+    flex-grow: 1;
+    position: relative
+  }
+
+  .raid-frame {
+    background: var(--frame-bg);
+    border: 2px solid var(--border-color);
+    border-radius: 4px;
+    position: relative;
+    cursor: pointer;
+    height: 60px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    overflow: hidden;
+    transition: border-color .1s
+  }
+
+  .raid-frame.selected {
+    border-color: var(--highlight-color);
+    box-shadow: 0 0 5px var(--highlight-color)
+  }
+
+  .raid-frame.dead {
+    opacity: .5;
+    filter: grayscale(100%)
+  }
+
+  .frame-name {
+    position: absolute;
+    top: 2px;
+    left: 5px;
+    z-index: 2;
+    font-size: 11px;
+    text-shadow: 1px 1px 2px black;
+    pointer-events: none
+  }
+
+  .health-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 4;
+    font-size: 12px;
+    font-weight: bold;
+    color: white;
+    text-shadow: 1px 1px 2px black;
+    pointer-events: none;
+    display: none;
+  }
+
+  .health-text.visible {
+    display: block;
+  }
+
+  .health-bar {
+    height: 100%;
+    width: 100%;
+    background-color: var(--health-good);
+    transition: width .2s, background-color .2s;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    z-index: 1
+  }
+
+  .buff-container {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    display: flex;
+    gap: 2px;
+    z-index: 3
+  }
+
+  .buff-icon {
+    width: 10px;
+    height: 10px;
+    background-color: #2ecc71;
+    border-radius: 50%;
+    border: 1px solid white
+  }
+
+  .debuff-icon {
+    width: 10px;
+    height: 10px;
+    background-color: #f0f;
+    border: 1px solid white
+  }
+
+  #player-hud {
+    background: #222;
+    padding: 10px;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    flex-shrink: 0
+  }
+
+  .resource-bar-container,
+  .cast-bar-container {
+    height: 20px;
+    background: #111;
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden
+  }
+
+  .resource-bar,
+  .cast-bar {
+    height: 100%;
+    width: 100%;
+    position: relative
+  }
+
+  .bar-fill {
+    height: 100%;
+    width: 100%;
+    transition: width .1s linear
+  }
+
+  #mana-bar .bar-fill {
+    background-color: var(--mana-color)
+  }
+
+  #cast-bar .bar-fill {
+    background-color: #f1c40f
+  }
+
+  .bar-text {
+    position: absolute;
+    width: 100%;
+    text-align: center;
+    line-height: 20px;
+    z-index: 2;
+    text-shadow: 1px 1px 2px black;
+    font-size: 12px
+  }
+
+  .hidden {
+    opacity: 0
+  }
+
+  .spell-bar {
+    display: flex;
+    gap: 5px;
+    justify-content: center;
+    margin-top: 5px
+  }
+
+  .spell-btn {
+    width: 45px;
+    height: 45px;
+    background: #444;
+    border: 2px solid #666;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    position: relative
+  }
+
+  .spell-btn:hover {
+    border-color: #fff
+  }
+
+  .spell-btn.cooldown {
+    cursor: not-allowed
+  }
+
+  .cooldown-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 5
+  }
+
+  .cooldown-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    text-shadow: 1px 1px 3px black;
+    z-index: 6;
+    pointer-events: none
+  }
+
+  .keybind {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    color: #f1c40f;
+    font-weight: 700;
+    z-index: 7;
+    font-size: 10px
+  }
+
+  .stats-panel {
+    margin-top: 5px;
+    padding: 5px;
+    background: #1a1a1a;
+    border-radius: 4px;
+    display: flex;
+    gap: 15px;
+    justify-content: space-around
+  }
+
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px
+  }
+
+  .stat-label {
+    font-size: 10px;
+    color: #888;
+    text-transform: uppercase
+  }
+
+  .stat-value {
+    font-size: 14px;
+    font-weight: 700;
+    color: #2ecc71
+  }
+
+  .shield-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 0%;
+    width: 100%;
+    background: #ffffff4d;
+    border-top: 2px solid white;
+    pointer-events: none;
+    z-index: 2;
+    transition: height .2s;
+    display: none
+  }
+
+  .shield-overlay.active {
+    display: block
+  }
+
+  #game-over-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #000c;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    color: #fff;
+    font-size: 32px;
+    font-weight: 700
+  }
+
+  #game-over-overlay.hidden {
+    display: none
+  }
+
+  .restart-btn {
+    margin-top: 20px;
+    padding: 10px 20px;
+    font-size: 18px;
+    background: var(--health-good);
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer
+  }
+
+  .restart-btn:hover {
+    background: #27ae60
+  }
+
+  .floating-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 20px;
+    font-weight: 700;
+    pointer-events: none;
+    z-index: 10;
+    animation: floatUp 1s ease-out forwards;
+    text-shadow: 1px 1px 2px black
+  }
+
+  .floating-text.heal {
+    color: #2ecc71
+  }
+
+  .floating-text.damage {
+    color: #e74c3c
+  }
+
+  @keyframes floatUp {
+    0% {
+      opacity: 1;
+      margin-top: 0
     }
 
-    * {
-      box-sizing: border-box
+    to {
+      opacity: 0;
+      margin-top: -50px
     }
+  }
 
-    body {
-      margin: 0;
-      background-color: var(--bg-color);
-      color: #fff;
-      font-family: Segoe UI, Tahoma, Geneva, Verdana, sans-serif;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      overflow: hidden
-    }
+  #chain-heal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 100
+  }
 
-    #game-container {
-      display: flex;
-      flex-direction: row;
-      gap: 10px;
-      width: 100vw;
-      height: 100vh;
-      padding: 10px;
-      overflow: hidden
-    }
+  .chain-beam {
+    stroke: #2ecc71;
+    stroke-width: 3;
+    fill: none;
+    filter: drop-shadow(0 0 5px #2ecc71);
+    stroke-dasharray: 10 5;
+    animation: chainFlow .6s linear
+  }
 
-    #main-content {
-      display: flex;
-      flex: 1;
-      flex-direction: column;
-      gap: 10px;
-      overflow: hidden
-    }
-
-    .raid-grid {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 5px;
-      padding: 5px;
-      background: #222;
-      border-radius: 8px;
-      flex-grow: 1;
-      position: relative
-    }
-
-    .raid-frame {
-      background: var(--frame-bg);
-      border: 2px solid var(--border-color);
-      border-radius: 4px;
-      position: relative;
-      cursor: pointer;
-      height: 60px;
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-end;
-      overflow: hidden;
-      transition: border-color .1s
-    }
-
-    .raid-frame.selected {
-      border-color: var(--highlight-color);
-      box-shadow: 0 0 5px var(--highlight-color)
-    }
-
-    .raid-frame.dead {
-      opacity: .5;
-      filter: grayscale(100%)
-    }
-
-    .frame-name {
-      position: absolute;
-      top: 2px;
-      left: 5px;
-      z-index: 2;
-      font-size: 11px;
-      text-shadow: 1px 1px 2px black;
-      pointer-events: none
-    }
-
-    .health-bar {
-      height: 100%;
-      width: 100%;
-      background-color: var(--health-good);
-      transition: width .2s, background-color .2s;
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      z-index: 1
-    }
-
-    .buff-container {
-      position: absolute;
-      bottom: 2px;
-      right: 2px;
-      display: flex;
-      gap: 2px;
-      z-index: 3
-    }
-
-    .buff-icon {
-      width: 10px;
-      height: 10px;
-      background-color: #2ecc71;
-      border-radius: 50%;
-      border: 1px solid white
-    }
-
-    .debuff-icon {
-      width: 10px;
-      height: 10px;
-      background-color: #f0f;
-      border: 1px solid white
-    }
-
-    #player-hud {
-      background: #222;
-      padding: 10px;
-      border-radius: 8px;
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      flex-shrink: 0
-    }
-
-    .resource-bar-container,
-    .cast-bar-container {
-      height: 20px;
-      background: #111;
-      border-radius: 4px;
-      position: relative;
-      overflow: hidden
-    }
-
-    .resource-bar,
-    .cast-bar {
-      height: 100%;
-      width: 100%;
-      position: relative
-    }
-
-    .bar-fill {
-      height: 100%;
-      transition: width .1s linear
-    }
-
-    #mana-bar .bar-fill {
-      background-color: var(--mana-color)
-    }
-
-    #cast-bar .bar-fill {
-      background-color: #f1c40f
-    }
-
-    .bar-text {
-      position: absolute;
-      width: 100%;
-      text-align: center;
-      line-height: 20px;
-      z-index: 2;
-      text-shadow: 1px 1px 2px black;
-      font-size: 12px
-    }
-
-    .hidden {
+  @keyframes chainFlow {
+    0% {
+      stroke-dashoffset: 0;
       opacity: 0
     }
 
-    .spell-bar {
-      display: flex;
-      gap: 5px;
-      justify-content: center;
-      margin-top: 5px
+    20% {
+      opacity: 1
     }
 
-    .spell-btn {
-      width: 45px;
-      height: 45px;
-      background: #444;
-      border: 2px solid #666;
-      border-radius: 4px;
-      cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      font-size: 9px;
-      position: relative
+    to {
+      stroke-dashoffset: -100;
+      opacity: 0
+    }
+  }
+
+  .chain-heal-glow {
+    box-shadow: 0 0 20px #2ecc71, inset 0 0 20px #2ecc71;
+    animation: chainGlow .6s ease-out
+  }
+
+  @keyframes chainGlow {
+    0% {
+      box-shadow: 0 0 20px #2ecc71, inset 0 0 20px #2ecc71
     }
 
-    .spell-btn:hover {
-      border-color: #fff
+    to {
+      box-shadow: 0 0 #2ecc71, inset 0 0 #2ecc71
+    }
+  }
+
+  .settings-panel {
+    margin-top: 5px;
+    display: flex;
+    justify-content: center
+  }
+
+  .toggle-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+  }
+
+  .toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+  }
+
+  .slider {
+    position: relative;
+    width: 50px;
+    height: 28px;
+    background-color: #ccc;
+    transition: .4s;
+    border-radius: 34px;
+    flex-shrink: 0;
+  }
+
+  .slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 4px;
+    bottom: 4px;
+    background-color: #fff;
+    transition: .4s;
+    border-radius: 50%
+  }
+
+  input:checked+.slider {
+    background-color: #2196f3
+  }
+
+  input:focus+.slider {
+    box-shadow: 0 0 1px #2196f3
+  }
+
+  input:checked+.slider:before {
+    transform: translate(22px)
+  }
+
+  .label-text {
+    color: #fff;
+    font-weight: 700;
+    white-space: nowrap;
+    font-size: 12px
+  }
+
+  #dps-meter {
+    width: 250px;
+    background-color: var(--bg-panel);
+    border-radius: 8px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 6px #0000004d;
+    flex-shrink: 0
+  }
+
+  .dps-meter-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+    border-bottom: 1px solid #444;
+    padding-bottom: 5px
+  }
+
+  .dps-meter-header span:first-child {
+    font-weight: 700;
+    color: var(--text-secondary)
+  }
+
+  .total-dps {
+    font-weight: 700;
+    color: var(--text-primary)
+  }
+
+  #dps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow-y: auto;
+    flex: 1
+  }
+
+  .dps-item {
+    display: flex;
+    flex-direction: column;
+    font-size: .85rem;
+    position: relative;
+    padding: 2px 0
+  }
+
+  .dps-player-info {
+    display: flex;
+    justify-content: space-between;
+    z-index: 2;
+    margin-bottom: 2px
+  }
+
+  .dps-value {
+    position: absolute;
+    right: 5px;
+    top: 2px;
+    z-index: 2;
+    font-weight: 700
+  }
+
+  .dps-bar-container {
+    height: 6px;
+    width: 100%;
+    background-color: #333;
+    border-radius: 3px;
+    overflow: hidden
+  }
+
+  .dps-bar {
+    height: 100%;
+    background-color: #7f8c8d;
+    transition: width .5s ease-out
+  }
+
+  .boss-health-container {
+    background-color: var(--bg-panel);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 5px;
+    box-shadow: 0 4px 6px #0000004d;
+    flex-shrink: 0
+  }
+
+  .boss-name {
+    font-size: 1.2rem;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 5px;
+    color: #e74c3c;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, .8);
+    letter-spacing: 2px
+  }
+
+  .boss-health-bar {
+    width: 100%;
+    height: 25px;
+    background-color: #444;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+    border: 2px solid #666
+  }
+
+  .boss-health-bar .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #c0392b, #e74c3c);
+    width: 100%;
+    transition: width .3s ease-out, background .3s ease-out
+  }
+
+  .boss-health-bar .bar-fill.medium {
+    background: linear-gradient(90deg, #d35400, #e67e22)
+  }
+
+  .boss-health-bar .bar-fill.low {
+    background: linear-gradient(90deg, #f39c12, #f1c40f)
+  }
+
+  .boss-health-bar .bar-text {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 1rem;
+    font-weight: 700;
+    text-shadow: 2px 2px 3px rgba(0, 0, 0, .9);
+    z-index: 2
+  }
+
+  .boss-enrage-indicator {
+    text-align: center;
+    margin-top: 5px;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #f39c12;
+    text-shadow: 0 0 10px #f39c12;
+    animation: pulse .8s infinite
+  }
+
+  .boss-enrage-indicator.hidden {
+    display: none
+  }
+
+  @keyframes pulse {
+
+    0%,
+    to {
+      opacity: 1;
+      transform: scale(1)
     }
 
-    .spell-btn.cooldown {
-      cursor: not-allowed
+    50% {
+      opacity: .7;
+      transform: scale(1.05)
     }
-
-    .cooldown-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      border-radius: 4px;
-      pointer-events: none;
-      z-index: 5
-    }
-
-    .cooldown-text {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 14px;
-      font-weight: 700;
-      color: #fff;
-      text-shadow: 1px 1px 3px black;
-      z-index: 6;
-      pointer-events: none
-    }
-
-    .keybind {
-      position: absolute;
-      top: 1px;
-      right: 1px;
-      color: #f1c40f;
-      font-weight: 700;
-      z-index: 7;
-      font-size: 10px
-    }
-
-    .stats-panel {
-      margin-top: 5px;
-      padding: 5px;
-      background: #1a1a1a;
-      border-radius: 4px;
-      display: flex;
-      gap: 15px;
-      justify-content: space-around
-    }
-
-    .stat-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 2px
-    }
-
-    .stat-label {
-      font-size: 10px;
-      color: #888;
-      text-transform: uppercase
-    }
-
-    .stat-value {
-      font-size: 14px;
-      font-weight: 700;
-      color: #2ecc71
-    }
-
-    .shield-overlay {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      height: 0%;
-      width: 100%;
-      background: #ffffff4d;
-      border-top: 2px solid white;
-      pointer-events: none;
-      z-index: 2;
-      transition: height .2s;
-      display: none
-    }
-
-    .shield-overlay.active {
-      display: block
-    }
-
-    #game-over-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: #000c;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      z-index: 1000;
-      color: #fff;
-      font-size: 32px;
-      font-weight: 700
-    }
-
-    #game-over-overlay.hidden {
-      display: none
-    }
-
-    .restart-btn {
-      margin-top: 20px;
-      padding: 10px 20px;
-      font-size: 18px;
-      background: var(--health-good);
-      border: none;
-      border-radius: 4px;
-      color: #fff;
-      cursor: pointer
-    }
-
-    .restart-btn:hover {
-      background: #27ae60
-    }
-
-    .floating-text {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 20px;
-      font-weight: 700;
-      pointer-events: none;
-      z-index: 10;
-      animation: floatUp 1s ease-out forwards;
-      text-shadow: 1px 1px 2px black
-    }
-
-    .floating-text.heal {
-      color: #2ecc71
-    }
-
-    .floating-text.damage {
-      color: #e74c3c
-    }
-
-    @keyframes floatUp {
-      0% {
-        opacity: 1;
-        margin-top: 0
-      }
-
-      to {
-        opacity: 0;
-        margin-top: -50px
-      }
-    }
-
-    #chain-heal-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-      z-index: 100
-    }
-
-    .chain-beam {
-      stroke: #2ecc71;
-      stroke-width: 3;
-      fill: none;
-      filter: drop-shadow(0 0 5px #2ecc71);
-      stroke-dasharray: 10 5;
-      animation: chainFlow .6s linear
-    }
-
-    @keyframes chainFlow {
-      0% {
-        stroke-dashoffset: 0;
-        opacity: 0
-      }
-
-      20% {
-        opacity: 1
-      }
-
-      to {
-        stroke-dashoffset: -100;
-        opacity: 0
-      }
-    }
-
-    .chain-heal-glow {
-      box-shadow: 0 0 20px #2ecc71, inset 0 0 20px #2ecc71;
-      animation: chainGlow .6s ease-out
-    }
-
-    @keyframes chainGlow {
-      0% {
-        box-shadow: 0 0 20px #2ecc71, inset 0 0 20px #2ecc71
-      }
-
-      to {
-        box-shadow: 0 0 #2ecc71, inset 0 0 #2ecc71
-      }
-    }
-
-    .settings-panel {
-      margin-top: 5px;
-      display: flex;
-      justify-content: center
-    }
-
-    .toggle-switch {
-      position: relative;
-      display: inline-block;
-      width: 50px;
-      height: 28px
-    }
-
-    .toggle-switch input {
-      opacity: 0;
-      width: 0;
-      height: 0
-    }
-
-    .slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: #ccc;
-      transition: .4s;
-      border-radius: 34px
-    }
-
-    .slider:before {
-      position: absolute;
-      content: "";
-      height: 20px;
-      width: 20px;
-      left: 4px;
-      bottom: 4px;
-      background-color: #fff;
-      transition: .4s;
-      border-radius: 50%
-    }
-
-    input:checked+.slider {
-      background-color: #2196f3
-    }
-
-    input:focus+.slider {
-      box-shadow: 0 0 1px #2196f3
-    }
-
-    input:checked+.slider:before {
-      transform: translate(22px)
-    }
-
-    .label-text {
-      margin-left: 60px;
-      line-height: 28px;
-      color: #fff;
-      font-weight: 700;
-      white-space: nowrap;
-      font-size: 12px
-    }
-
-    #dps-meter {
-      width: 250px;
-      background-color: var(--bg-panel);
-      border-radius: 8px;
-      padding: 10px;
-      display: flex;
-      flex-direction: column;
-      box-shadow: 0 4px 6px #0000004d;
-      flex-shrink: 0
-    }
-
-    .dps-meter-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 5px;
-      border-bottom: 1px solid #444;
-      padding-bottom: 5px
-    }
-
-    .dps-meter-header span:first-child {
-      font-weight: 700;
-      color: var(--text-secondary)
-    }
-
-    .total-dps {
-      font-weight: 700;
-      color: var(--text-primary)
-    }
-
-    #dps-list {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      overflow-y: auto;
-      flex: 1
-    }
-
-    .dps-item {
-      display: flex;
-      flex-direction: column;
-      font-size: .85rem;
-      position: relative;
-      padding: 2px 0
-    }
-
-    .dps-player-info {
-      display: flex;
-      justify-content: space-between;
-      z-index: 2;
-      margin-bottom: 2px
-    }
-
-    .dps-value {
-      position: absolute;
-      right: 5px;
-      top: 2px;
-      z-index: 2;
-      font-weight: 700
-    }
-
-    .dps-bar-container {
-      height: 6px;
-      width: 100%;
-      background-color: #333;
-      border-radius: 3px;
-      overflow: hidden
-    }
-
-    .dps-bar {
-      height: 100%;
-      background-color: #7f8c8d;
-      transition: width .5s ease-out
-    }
-
-    .boss-health-container {
-      background-color: var(--bg-panel);
-      border-radius: 8px;
-      padding: 10px;
-      margin-bottom: 5px;
-      box-shadow: 0 4px 6px #0000004d;
-      flex-shrink: 0
-    }
-
-    .boss-name {
-      font-size: 1.2rem;
-      font-weight: 700;
-      text-align: center;
-      margin-bottom: 5px;
-      color: #e74c3c;
-      text-shadow: 2px 2px 4px rgba(0, 0, 0, .8);
-      letter-spacing: 2px
-    }
-
-    .boss-health-bar {
-      width: 100%;
-      height: 25px;
-      background-color: #444;
-      border-radius: 12px;
-      overflow: hidden;
-      position: relative;
-      border: 2px solid #666
-    }
-
-    .boss-health-bar .bar-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #c0392b, #e74c3c);
-      width: 100%;
-      transition: width .3s ease-out, background .3s ease-out
-    }
-
-    .boss-health-bar .bar-fill.medium {
-      background: linear-gradient(90deg, #d35400, #e67e22)
-    }
-
-    .boss-health-bar .bar-fill.low {
-      background: linear-gradient(90deg, #f39c12, #f1c40f)
-    }
-
-    .boss-health-bar .bar-text {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-size: 1rem;
-      font-weight: 700;
-      text-shadow: 2px 2px 3px rgba(0, 0, 0, .9);
-      z-index: 2
-    }
-
-    .boss-enrage-indicator {
-      text-align: center;
-      margin-top: 5px;
-      font-size: 1rem;
-      font-weight: 700;
-      color: #f39c12;
-      text-shadow: 0 0 10px #f39c12;
-      animation: pulse .8s infinite
-    }
-
-    .boss-enrage-indicator.hidden {
-      display: none
-    }
-
-    @keyframes pulse {
-
-      0%,
-      to {
-        opacity: 1;
-        transform: scale(1)
-      }
-
-      50% {
-        opacity: .7;
-        transform: scale(1.05)
-      }
-    }
-  </style>
+  }
+</style>
 </head>
 
 <body>
@@ -767,9 +782,14 @@ Total Damage: ${Math.floor(l.totalDamage).toLocaleString()}`
 
           <div class="settings-panel">
             <label class="toggle-switch">
-              <input type="checkbox" id="mouseover-toggle">
+              <input type="checkbox" id="mouseover-toggle" checked>
               <span class="slider"></span>
               <span class="label-text">Mouse-Over Mode</span>
+            </label>
+            <label class="toggle-switch" style="margin-left: 10px;">
+              <input type="checkbox" id="health-text-toggle" checked>
+              <span class="slider"></span>
+              <span class="label-text">Show Health Text</span>
             </label>
           </div>
         </div>
